@@ -1,5 +1,11 @@
 # Changelog
 
+## [v6.8.6] - 2026-09-15
+
+### Fixed
+
+- **Plan-aware default model.** `getKilocodeDefaultModel` no longer returns the hardcoded `openRouterDefaultModelId`. It now resolves the default from the live MatterAI catalog (`/v1/web/models`): free accounts get the entry the backend flags `freePlan`, every other plan gets the first catalog entry (index 0, ordered by the catalog's `sortOrder`). The account plan comes from `/axoncode/profile`; a failed profile fetch is treated as free, and any catalog failure still falls back to `openRouterDefaultModelId`. The stale-model reset paths in `ClineProvider` now pass the KiloCode token and organization id so they resolve the same plan-aware default instead of the hardcoded one.
+
 ## [v6.8.5] - 2026-09-04
 
 ### Added
