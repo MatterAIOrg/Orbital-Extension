@@ -476,7 +476,7 @@ Do not call read_file again with the same path, offset, and limit. Choose the ne
 - If the earlier content is sufficient, continue the analysis or make the edit.
 - ${nextRegionHint}
 - Do not walk through nearby offsets on this file one-by-one; that is still a repeated-read loop.
-- If you do not know the target line, use search_files for the relevant symbol or text, then read only the matched range.
+- If you do not know the target line, use rg -n via the Bash tool for the relevant symbol or text, then read only the matched range.
 
 Do not stop or ask the user because of this skipped read; proceed with the best next action above.`,
 					})

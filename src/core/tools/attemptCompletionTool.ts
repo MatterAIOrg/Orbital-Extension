@@ -152,7 +152,7 @@ export async function attemptCompletionTool(
 			cline.consecutiveMistakeCount = 0
 
 			// Command execution is permanently disabled in attempt_completion
-			// Users must use execute_command tool separately before attempt_completion
+			// Users must use the Bash tool separately before attempt_completion
 			await cline.say(
 				"completion_result",
 				result,

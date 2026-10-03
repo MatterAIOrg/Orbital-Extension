@@ -35,10 +35,10 @@ RULES
 
 	if (isCodebaseSearchAvailable) {
 		rulesContent +=
-			"- Use codebase_search for intent-based discovery when the target is unclear. For known symbols, paths, or exact text, use search_files or read_file directly.\n"
+			"- Use codebase_search for intent-based discovery when the target is unclear. For known symbols, paths, or exact text, use `rg` via the Bash tool or read_file directly.\n"
 	}
 
-	rulesContent += `- For search_files, use a specific regex and the narrowest plausible path. It returns bounded results; refine the query instead of repeating it unchanged.
+	rulesContent += `- Search and list files with rg, find and ls through the Bash tool, using a specific pattern, the narrowest plausible path, and | head to bound the output; refine the query instead of repeating it unchanged.
 - Read only the relevant file region, do not walk adjacent ranges one-by-one, and do not re-read an unchanged region.
 ${getEditingInstructions(diffStrategy)}
 - Some modes restrict which files may be edited; respect any FileRestrictionError.

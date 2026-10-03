@@ -17,7 +17,7 @@ export function getToolUseGuidelinesSection(
 
 	if (isCodebaseSearchAvailable) {
 		guidelinesList.push(
-			`${itemNumber++}. Use \`codebase_search\` when the target is unclear and intent-based discovery is useful. For known symbols, paths, or exact text, use \`search_files\` or \`read_file\` directly.`,
+			`${itemNumber++}. Use \`codebase_search\` when the target is unclear and intent-based discovery is useful. For known symbols, paths, or exact text, use \`rg\` via the Bash tool or \`read_file\` directly.`,
 		)
 	} else {
 		guidelinesList.push(`${itemNumber++}. Choose the smallest available tool that answers the current question.`)

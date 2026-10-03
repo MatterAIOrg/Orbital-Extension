@@ -1,21 +1,21 @@
 import { describe, expect, it } from "vitest"
 
-import executeCommand from "../execute_command"
+import bash from "../bash"
 import { nativeTools } from ".."
 import fileEdit from "../file_edit"
 import multiFileEdit from "../multi_file_edit"
-import searchFiles from "../search_files"
 
 function parameters(tool: any) {
 	return tool.function.parameters
 }
 
 describe("native tool contracts", () => {
-	it("keeps search one-shot and free of model-facing cursors", () => {
-		const schema = parameters(searchFiles)
-		expect(schema.properties.cursor).toBeUndefined()
-		expect(schema.required).not.toContain("cursor")
-		expect(schema.required).toEqual(["path", "regex", "file_pattern", "max_results", "context_lines"])
+	it("offers shell search instead of dedicated search/list tools", () => {
+		const names = nativeTools.map((tool) => tool.function.name)
+		expect(names).toContain("Bash")
+		expect(names).not.toContain("execute_command")
+		expect(names).not.toContain("search_files")
+		expect(names).not.toContain("list_files")
 	})
 
 	it("makes edit replacement intent explicit for strict schemas", () => {
@@ -26,7 +26,7 @@ describe("native tool contracts", () => {
 	})
 
 	it("requires command safety metadata", () => {
-		expect(parameters(executeCommand).required).toEqual(["command", "cwd", "message", "isDangerous"])
+		expect(parameters(bash).required).toEqual(["command", "cwd", "message", "isDangerous"])
 	})
 
 	it("keeps strict schemas valid for optional arguments", () => {

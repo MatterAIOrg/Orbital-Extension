@@ -1,5 +1,23 @@
 # Changelog
 
+## [v6.9.0] - 2026-10-03
+
+### Changed
+
+- **Shell-first exploration.** `search_files` and `list_files` are no longer offered to the model. It searches and lists with `rg`, `find`, `ls` and `git` through the shell tool, the way Claude Code does, and the system prompt (tool guide, capabilities, rules, objective, tool-use guidelines, environment details) teaches the common patterns. To keep this from becoming an approval prompt on every search, **read-only commands skip the approval prompt in every command approval mode, including "Ask"**: `rg`, `grep`, `find` without `-exec`/`-delete`, `ls`, `cat`, `head`, `wc`, `git status/diff/log/show/grep`, and pipes / `&&` / `;` chains of these with no redirects or command substitution (`src/core/tools/readOnlyCommand.ts`). Anything unrecognised, or marked `isDangerous`, still follows the normal approval mode. The old executors stay in the codebase so previously rendered rows keep working.
+- **`execute_command` is shown to the model as `Bash`.** The tool is renamed to match what models are trained on. Internally it is still `execute_command` (approval, UI, mode groups, persisted history); `src/shared/toolAliases.ts` translates at the boundary: incoming native tool calls named `Bash` (or the old `execute_command`) map to the internal tool, and history sent back to the model uses `Bash`.
+- **Commands run in bash.** The command executor now prefers bash over the VS Code terminal profile (fish and csh choke on the `&&`, `$?` and `$(...)` syntax the model writes, and the cwd-tracking suffix already assumed a POSIX shell): bash on macOS/Linux, Git Bash on Windows, falling back to the configured shell (POSIX) or `cmd.exe` only when bash isn't installed. The system prompt states the shell, and warns the model when it is stuck on `cmd.exe`. Commands run with shell integration in the VS Code terminal still use the terminal profile.
+- **Leaner system prompt.** The "Verifying tool results and avoiding loops" and "Investigation efficiency" sections asked the model to deliberate before every tool call. They are replaced by a four-line "Working style" block (act directly, locate -> edit -> check once, batch independent calls, never repeat an identical call more than twice).
+
+### Added
+
+- **Stale tool-result pruning.** Once context passes 40% of the model's window, bulky results of `read_file`, `execute_command` (Bash), `codebase_search`, `web_fetch` and `web_search` older than the four most recent tool results are sent as one-line stubs. The stored conversation and task history are untouched; only the outgoing request shrinks, and the boundary advances in batches of six so the request prefix (and the provider's prompt cache) stays stable between prunes. It resets when the history is condensed. Results containing images are never stubbed.
+- **Actionable "not found" edit errors.** When `file_edit` / `multi_file_edit` cannot find `old_string`, the error now includes the closest region of the file (up to 7 numbered lines with their exact whitespace), so the model can retry without another read.
+
+### Notes
+
+- Already present in this extension and therefore not part of this release: whitespace/CRLF-tolerant edit matching, automatic context condensing, repeated-call detection, and process-tree kill on command abort. The `bench/` harness and parallel read-only shell commands are not ported (parallel terminals share a single interactive ask).
+
 ## [v6.8.6] - 2026-09-15
 
 ### Fixed

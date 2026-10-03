@@ -8,6 +8,7 @@ import { readFileSync, unlinkSync } from "fs"
 import type { RooTerminal } from "./types"
 import { BaseTerminalProcess } from "./BaseTerminalProcess"
 import { getShellEnvironment, getCapturedShell } from "./ShellEnvironment"
+import { getCommandShell } from "../../utils/shell"
 
 export class ExecaTerminalProcess extends BaseTerminalProcess {
 	private terminalRef: WeakRef<RooTerminal>
@@ -48,7 +49,10 @@ export class ExecaTerminalProcess extends BaseTerminalProcess {
 			// On Windows, process.env already carries the full system PATH;
 			// using shell:true (cmd.exe) is the safest default there.
 			const isWindows = process.platform === "win32"
-			const shellPath = isWindows ? true : getCapturedShell()
+			// The model writes bash syntax, so prefer bash (Git Bash on Windows) over the
+			// configured terminal profile; fall back to the profile / cmd.exe when absent.
+			const commandShell = getCommandShell()
+			const shellPath = commandShell.path ?? (isWindows ? true : getCapturedShell())
 
 			// Use the captured login-shell environment so that CLI tools
 			// installed via Homebrew, nvm, cargo, etc. are on PATH even when

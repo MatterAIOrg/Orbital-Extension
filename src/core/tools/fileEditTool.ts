@@ -395,12 +395,46 @@ export function performReplacement(
 	// Not found by any strategy.
 	const preview = oldString.length > 100 ? oldString.slice(0, 100) + "..." : oldString
 	const contentPreview = content.length > 200 ? content.slice(0, 200) + "..." : content
+	const closest = closestRegion(content, oldString)
 	throw new Error(
 		`old_string not found in file content.\n` +
 			`Searched for (${oldString.length} chars): ${JSON.stringify(preview)}\n` +
-			`File starts with: ${JSON.stringify(contentPreview)}\n` +
+			(closest ? `${closest}\n` : `File starts with: ${JSON.stringify(contentPreview)}\n`) +
 			"No edit was applied. DO NOT guess or invent a corrected old_string. Re-read the intended target and copy the exact current text before retrying.",
 	)
+}
+
+/**
+ * Up to 7 numbered lines around the file line that best resembles `oldString`,
+ * with exact whitespace, so the model can retry without another read.
+ */
+function closestRegion(content: string, oldString: string): string | undefined {
+	const tokens = (text: string) => new Set(text.toLowerCase().match(/[a-z0-9_$]+/g) ?? [])
+	const probe = oldString.split("\n").find((line) => line.trim().length >= 4)
+	if (!probe) return undefined
+	const wanted = tokens(probe)
+	if (wanted.size === 0) return undefined
+	const lines = content.split("\n")
+	let bestIndex = -1
+	let bestScore = 0
+	for (let i = 0; i < lines.length; i++) {
+		const have = tokens(lines[i])
+		let shared = 0
+		for (const token of wanted) if (have.has(token)) shared++
+		const score = shared / (wanted.size + have.size - shared || 1)
+		if (score > bestScore) {
+			bestScore = score
+			bestIndex = i
+		}
+	}
+	if (bestIndex < 0 || bestScore < 0.5) return undefined
+	const from = Math.max(0, bestIndex - 3)
+	const to = Math.min(lines.length, bestIndex + 4)
+	const shown = lines
+		.slice(from, to)
+		.map((line, i) => `${String(from + i + 1).padStart(6, " ")}|${line.replace(/\r$/, "")}`)
+		.join("\n")
+	return `Closest match in the file (lines ${from + 1}-${to}, exact whitespace shown):\n${shown}`
 }
 
 function countOccurrences(haystack: string, needle: string): number {

@@ -188,7 +188,7 @@ describe("RooIgnore Response Formatting", () => {
 
 			// Should contain truncation message (case-insensitive check)
 			expect(result).toContain("File list truncated")
-			expect(result).toMatch(/use list_files on specific subdirectories/i)
+			expect(result).toMatch(/use ls or find on specific subdirectories/i)
 		})
 
 		/**

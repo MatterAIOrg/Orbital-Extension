@@ -2,12 +2,10 @@ import { OpenAI } from "openai/client"
 import askFollowupQuestion from "./ask_followup_question"
 import attemptCompletion from "./attempt_completion"
 import checkPastChatMemories from "./check_past_chat_memories"
-import executeCommand from "./execute_command"
+import bash from "./bash"
 import listCodeDefinitionNames from "./list_code_definition_names"
-import listFiles from "./list_files"
 import lsp from "./lsp"
 import { read_file } from "./read_file"
-import searchFiles from "./search_files"
 import fileEdit from "./file_edit"
 import multiFileEdit from "./multi_file_edit"
 import fileWrite from "./file_write"
@@ -19,6 +17,10 @@ import webFetch from "./web_fetch"
 import webSearch from "./web_search"
 import generateFile from "./generate_file"
 
+// The model-facing shell tool is "Bash" (internal name: execute_command, see
+// shared/toolAliases.ts). list_files / search_files are intentionally not
+// offered: the model uses rg/find/ls through Bash, and read-only commands skip
+// the approval prompt (see core/tools/readOnlyCommand.ts).
 export const nativeTools = [
 	fileEdit,
 	multiFileEdit,
@@ -27,12 +29,10 @@ export const nativeTools = [
 	attemptCompletion,
 	checkPastChatMemories,
 	codebaseSearch,
-	executeCommand,
+	bash,
 	listCodeDefinitionNames,
-	listFiles,
 	lsp,
 	read_file,
-	searchFiles,
 	updateTodoList,
 	useSkill,
 	figmaFetch,

@@ -1,5 +1,6 @@
 import { Anthropic } from "@anthropic-ai/sdk"
 import OpenAI from "openai"
+import { toModelToolName } from "../../shared/toolAliases"
 
 export function convertToOpenAiMessages(
 	anthropicMessages: Anthropic.Messages.MessageParam[],
@@ -162,7 +163,7 @@ export function convertToOpenAiMessages(
 					id: toolMessage.id,
 					type: "function",
 					function: {
-						name: toolMessage.name,
+						name: toModelToolName(toolMessage.name),
 						// json string
 						arguments: JSON.stringify(toolMessage.input),
 					},

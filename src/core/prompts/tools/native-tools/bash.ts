@@ -3,9 +3,9 @@ import type OpenAI from "openai"
 export default {
 	type: "function",
 	function: {
-		name: "execute_command",
+		name: "Bash",
 		description:
-			"Run one CLI command. Provide a short user-facing message and explicitly classify whether it may modify or delete data. Prefer commands scoped to the workspace.",
+			"Run one bash command. Also use it to explore the codebase: search with rg/grep, list with ls/find/tree, inspect git state. Read-only commands run without approval. Provide a short user-facing message and explicitly classify whether it may modify or delete data. Prefer commands scoped to the workspace.",
 		strict: true,
 		parameters: {
 			type: "object",

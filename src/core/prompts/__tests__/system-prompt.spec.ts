@@ -139,6 +139,7 @@ vi.mock("vscode", () => ({
 
 vi.mock("../../../utils/shell", () => ({
 	getShell: () => "/bin/zsh",
+	getCommandShell: () => ({ path: "/bin/bash", isBash: true }),
 }))
 
 // Create a mock ExtensionContext
