@@ -75,7 +75,7 @@ export async function getParallelModeParams({ cwd, prompt, existingBranch }: Inp
 }
 
 const agentCommitInstruction =
-	"Inspect the git diff and commit all staged changes with a proper conventional commit message (e.g., 'feat:', 'fix:', 'chore:', etc.). Use execute_command to run 'git diff --staged', then commit with an appropriate message using 'git commit -m \"your-message\"'."
+	"Inspect the git diff and commit all staged changes with a proper conventional commit message (e.g., 'feat:', 'fix:', 'chore:', etc.). Use the Bash tool to run 'git diff --staged', then commit with an appropriate message using 'git commit -m \"your-message\"'."
 
 /**
  * Finish parallel mode by having the extension agent generate a commit message and committing changes,

@@ -16,7 +16,7 @@ describe("getObjectiveSection", () => {
 	it("recommends semantic search selectively", () => {
 		const objective = getObjectiveSection(enabled)
 		expect(objective).toContain("When the target is unclear")
-		expect(objective).toContain("use `search_files` or `read_file` directly")
+		expect(objective).toContain("use `rg` via the Bash tool or `read_file` directly")
 		expect(objective).not.toContain("MUST use the `codebase_search` tool")
 	})
 

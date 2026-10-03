@@ -6,6 +6,7 @@ import OpenAI from "openai"
 import { ALWAYS_AVAILABLE_TOOLS, TOOL_GROUPS } from "../../../../shared/tools"
 import { nativeTools } from "."
 import { read_file } from "./read_file"
+import { toInternalToolName } from "../../../../shared/toolAliases"
 
 export function getAllowedJSONToolsForMode(
 	mode: Mode,
@@ -75,7 +76,7 @@ export function getAllowedJSONToolsForMode(
 
 	let isReadFileToolAllowedForMode = false
 	for (const nativeTool of nativeTools) {
-		const toolName = nativeTool.function.name
+		const toolName = toInternalToolName(nativeTool.function.name)
 
 		// If the tool is in the allowed set, add it.
 		if (tools.has(toolName)) {

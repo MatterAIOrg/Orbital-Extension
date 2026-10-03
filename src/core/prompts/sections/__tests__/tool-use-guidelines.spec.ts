@@ -16,7 +16,7 @@ describe("getToolUseGuidelinesSection", () => {
 	it("recommends semantic search selectively", () => {
 		const guidelines = getToolUseGuidelinesSection(enabled)
 		expect(guidelines).toContain("Use `codebase_search` when the target is unclear")
-		expect(guidelines).toContain("use `search_files` or `read_file` directly")
+		expect(guidelines).toContain("use `rg` via the Bash tool or `read_file` directly")
 		expect(guidelines).not.toContain("CRITICAL")
 	})
 

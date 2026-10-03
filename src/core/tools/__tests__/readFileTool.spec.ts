@@ -546,7 +546,7 @@ describe("read_file tool with maxReadFileLine setting", () => {
 				expect(result).toContain("No file content was returned")
 				expect(result).toContain("continue the analysis or make the edit")
 				expect(result).toContain("Do not walk through nearby offsets")
-				expect(result).toContain("use search_files for the relevant symbol or text")
+				expect(result).toContain("use rg -n via the Bash tool for the relevant symbol or text")
 				expect(result).toContain("Do not stop or ask the user")
 				expect(mockedExtractTextFromFile).not.toHaveBeenCalled()
 				expect(mockCline.ask).not.toHaveBeenCalledWith("mistake_limit_reached", expect.anything())

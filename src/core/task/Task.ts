@@ -111,6 +111,7 @@ import {
 	toolUseIdsRequiringResults,
 } from "./toolCallResultPairing" // forked_change: keep assistant tool_calls and tool_results paired 1:1
 import { truncateConversationIfNeeded } from "../sliding-window"
+import { StaleToolResultPruner } from "../sliding-window/staleToolResults"
 import { ClineProvider } from "../webview/ClineProvider"
 import { MultiSearchReplaceDiffStrategy } from "../diff/strategies/multi-search-replace"
 import { MultiFileSearchReplaceDiffStrategy } from "../diff/strategies/multi-file-search-replace"
@@ -370,6 +371,11 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	// executeCommandTool from the model's `isDangerous` param. Read by the command
 	// branch of askApproval so the "Approve for me" mode auto-approves only safe commands.
 	pendingCommandIsDangerous: boolean = false
+	// True when the pending command only observes the workspace (rg, ls, git diff, ...) and
+	// so skips the approval prompt in every approval mode. See core/tools/readOnlyCommand.ts.
+	pendingCommandIsReadOnly: boolean = false
+	// Stubs old bulky tool results in the outgoing request once context is large.
+	private readonly staleToolResultPruner = new StaleToolResultPruner()
 
 	// TaskStatus
 	idleAsk?: ClineMessage
@@ -4229,6 +4235,12 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			// kilocode_change: preserve reasoning
 			...("reasoning" in msg ? { reasoning: (msg as any).reasoning } : {}),
 		}))
+		// Only the outgoing copy is pruned; apiConversationHistory keeps every result.
+		cleanConversationHistory = this.staleToolResultPruner.apply(
+			cleanConversationHistory,
+			this.getTokenUsage().contextTokens ?? 0,
+			this.api.getModel().info.contextWindow,
+		)
 
 		// forked_change start
 		// Fetch project properties for KiloCode provider tracking

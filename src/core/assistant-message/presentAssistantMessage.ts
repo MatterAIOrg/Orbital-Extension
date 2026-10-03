@@ -529,12 +529,16 @@ export async function presentAssistantMessage(cline: Task, options: PresentAssis
 					//   "approveForMe" → auto-approve commands the model marked non-dangerous
 					//                    via the `isDangerous` param (default)
 					//   "ask"          → always prompt before running
+					// Read-only commands (rg, ls, git diff, ...) skip the prompt in every mode: they
+					// replace the old search_files/list_files tools, which never prompted.
 					const commandApprovalMode = state?.commandApprovalMode ?? "approveForMe"
 					const fullCommandAccess = commandApprovalMode === "fullAccess" || cline.autoApproveAllCommands
 					const approveBecauseSafe =
 						commandApprovalMode === "approveForMe" && !cline.pendingCommandIsDangerous
 
-					if (fullCommandAccess || approveBecauseSafe) {
+					const approveBecauseReadOnly = cline.pendingCommandIsReadOnly && !cline.pendingCommandIsDangerous
+
+					if (fullCommandAccess || approveBecauseSafe || approveBecauseReadOnly) {
 						return autoApproveWithoutBlocking()
 					}
 					// forked_change end

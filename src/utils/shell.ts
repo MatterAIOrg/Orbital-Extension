@@ -1,5 +1,6 @@
 import * as vscode from "vscode"
 import { userInfo } from "os"
+import * as fs from "fs"
 import * as path from "path"
 
 // Security: Allowlist of approved shell executables to prevent arbitrary command execution
@@ -367,4 +368,54 @@ export function getShell(): string {
 	}
 
 	return shell
+}
+
+// -----------------------------------------------------
+// 6) Shell used by the Bash tool
+// -----------------------------------------------------
+
+export interface CommandShell {
+	/** Shell executable to spawn, or undefined to use the platform default (cmd.exe on Windows). */
+	path: string | undefined
+	/** True when the shell understands bash syntax (rg ... | head, &&, $(...), ...). */
+	isBash: boolean
+}
+
+function firstExistingFile(candidates: (string | undefined)[]): string | undefined {
+	return candidates.find((candidate): candidate is string => {
+		if (!candidate) return false
+		try {
+			return fs.statSync(candidate).isFile()
+		} catch {
+			return false
+		}
+	})
+}
+
+let cachedCommandShell: CommandShell | undefined
+
+/**
+ * The model writes bash syntax, so commands run in bash instead of whatever the
+ * VS Code terminal profile is (fish and csh choke on `&&`, `$?` and friends):
+ * bash on macOS/Linux, Git Bash on Windows. When bash is missing, fall back to
+ * the configured shell (POSIX) or cmd.exe (Windows) and report isBash=false on
+ * Windows so the system prompt can warn the model.
+ */
+export function getCommandShell(): CommandShell {
+	if (cachedCommandShell) return cachedCommandShell
+	if (process.platform === "win32") {
+		const roots = [process.env.ProgramFiles, process.env["ProgramFiles(x86)"]]
+		const gitBash = firstExistingFile(
+			roots.flatMap((root) =>
+				root
+					? [path.join(root, "Git", "bin", "bash.exe"), path.join(root, "Git", "usr", "bin", "bash.exe")]
+					: [],
+			),
+		)
+		cachedCommandShell = { path: gitBash, isBash: gitBash !== undefined }
+	} else {
+		const bash = firstExistingFile(["/bin/bash", "/usr/bin/bash", "/usr/local/bin/bash", "/opt/homebrew/bin/bash"])
+		cachedCommandShell = bash ? { path: bash, isBash: true } : { path: undefined, isBash: false }
+	}
+	return cachedCommandShell
 }

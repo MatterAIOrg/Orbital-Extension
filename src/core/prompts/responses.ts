@@ -175,7 +175,7 @@ Otherwise, if you have not completed the task and do not need additional informa
 		if (didHitLimit) {
 			return `${rooIgnoreParsed.join(
 				"\n",
-			)}\n\n(File list truncated. Use list_files on specific subdirectories if you need to explore further.)`
+			)}\n\n(File list truncated. Use ls or find on specific subdirectories if you need to explore further.)`
 		} else if (rooIgnoreParsed.length === 0 || (rooIgnoreParsed.length === 1 && rooIgnoreParsed[0] === "")) {
 			return "No files found."
 		} else {

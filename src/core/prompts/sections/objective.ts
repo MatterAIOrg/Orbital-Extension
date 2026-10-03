@@ -11,7 +11,7 @@ export function getObjectiveSection(
 		codeIndexManager.isInitialized
 
 	const codebaseSearchInstruction = isCodebaseSearchAvailable
-		? "When the target is unclear, you may use `codebase_search` to find relevant code by intent; for known symbols or paths, use `search_files` or `read_file` directly. Then, "
+		? "When the target is unclear, you may use `codebase_search` to find relevant code by intent; for known symbols or paths, use `rg` via the Bash tool or `read_file` directly. Then, "
 		: ""
 
 	return `====

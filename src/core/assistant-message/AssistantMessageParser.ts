@@ -1,5 +1,6 @@
 import { type ToolName, toolNames } from "@roo-code/types"
 import { TextContent, ToolUse, ToolParamName, toolParamNames } from "../../shared/tools"
+import { toInternalToolName } from "../../shared/toolAliases"
 import { AssistantMessageContent } from "./parseAssistantMessage"
 import { NativeToolCall, parseDoubleEncodedParams } from "./kilocode/native-tool-call"
 import Anthropic from "@anthropic-ai/sdk" // kilocode_change
@@ -274,7 +275,7 @@ export class AssistantMessageParser {
 
 			// First delta: has function name (initialize accumulator)
 			if (toolCall.function?.name) {
-				const toolName = toolCall.function.name
+				const toolName = toInternalToolName(toolCall.function.name)
 
 				// Validate that this is a recognized tool name (native or MCP)
 				const isNativeTool = toolNames.includes(toolName as ToolName)
@@ -291,7 +292,7 @@ export class AssistantMessageParser {
 						id: toolCallId, // FIX: Use toolCallId instead of toolCall.id
 						type: toolCall.type,
 						function: {
-							name: toolCall.function.name,
+							name: toolName,
 							arguments: toolCall.function.arguments || "",
 						},
 						// forked_change: Track if this is an MCP tool and which server

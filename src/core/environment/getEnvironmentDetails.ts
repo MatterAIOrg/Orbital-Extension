@@ -326,13 +326,13 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 		if (isDesktop) {
 			// Don't want to immediately access desktop since it would show
 			// permission popup.
-			details += "(Desktop files not shown automatically. Use list_files to explore if needed.)"
+			details += "(Desktop files not shown automatically. Use ls or find via Bash to explore if needed.)"
 		} else {
 			const maxFiles = maxWorkspaceFiles ?? 200
 
 			// Early return for limit of 0
 			if (maxFiles === 0) {
-				details += "(Workspace files context disabled. Use list_files to explore if needed.)"
+				details += "(Workspace files context disabled. Use ls or find via Bash to explore if needed.)"
 			} else {
 				const [files, didHitLimit] = await listFiles(cline.cwd, true, maxFiles)
 				const { showRooIgnoredFiles = false } = state ?? {}

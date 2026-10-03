@@ -13,6 +13,7 @@ import { Task } from "../task/Task"
 import { ToolUse, AskApproval, HandleError, PushToolResult, RemoveClosingTag, ToolResponse } from "../../shared/tools"
 import { formatResponse } from "../prompts/responses"
 import { unescapeHtmlEntities } from "../../utils/text-normalization"
+import { isReadOnlyCommand } from "./readOnlyCommand"
 import { ExitCodeDetails, RooTerminalCallbacks, RooTerminalProcess } from "../../integrations/terminal/types"
 import { TerminalRegistry } from "../../integrations/terminal/TerminalRegistry"
 import { Terminal } from "../../integrations/terminal/Terminal"
@@ -68,6 +69,7 @@ export async function executeCommandTool(
 			// honour the user's command approval mode ("Approve for me" auto-approves only
 			// non-dangerous commands).
 			task.pendingCommandIsDangerous = isDangerousCommand
+			task.pendingCommandIsReadOnly = !isDangerousCommand && isReadOnlyCommand(command)
 			const didApprove = await askApproval("command", askText)
 
 			if (!didApprove) {

@@ -279,8 +279,6 @@ export const TOOL_GROUPS: Record<ToolGroup, ToolGroupConfig> = {
 		tools: [
 			"read_file",
 			"fetch_instructions",
-			"search_files",
-			"list_files",
 			"list_code_definition_names",
 			"lsp",
 			"codebase_search",

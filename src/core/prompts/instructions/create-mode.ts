@@ -48,14 +48,14 @@ customModes:
       or ensuring responsive web interfaces. This mode is especially effective with CSS,
       HTML, and modern frontend frameworks.  # Optional but recommended
     groups:  # Required: array of tool groups (can be empty)
-      - read     # Read files group (read_file, fetch_instructions, search_files, list_files, list_code_definition_names)
+      - read     # Read files group (read_file, fetch_instructions, list_code_definition_names)
       - edit     # Edit files group (file_edit, file_write) - allows editing any file
       # Or with file restrictions:
       # - - edit
       #   - fileRegex: \\.md$
       #     description: Markdown files only  # Edit group that only allows editing markdown files
       - browser  # Browser group (browser_action)
-      - command  # Command group (execute_command)
+      - command  # Command group (Bash)
       - mcp      # MCP group (use_mcp_tool, access_mcp_resource)
     customInstructions: Additional instructions for the Designer mode  # Optional`
 }
