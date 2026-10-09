@@ -368,7 +368,7 @@ export const CommandExecution = memo(
 						<span
 							data-testid="command-status"
 							className="shrink-0 text-xs font-medium text-vscode-foreground">
-							{hasCompleted ? "Ran Command" : "Running Command"}
+							Bash
 						</span>
 						<span aria-hidden="true" className="shrink-0 text-vscode-descriptionForeground/50">
 							·

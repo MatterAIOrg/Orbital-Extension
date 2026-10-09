@@ -8,6 +8,7 @@ import {
 	OPEN_ROUTER_REASONING_BUDGET_MODELS,
 	OPEN_ROUTER_REQUIRED_REASONING_BUDGET_MODELS,
 	anthropicModels,
+	isGatewayEffort,
 } from "@roo-code/types"
 
 import type { ApiHandlerOptions } from "../../../shared/api"
@@ -108,6 +109,7 @@ const matterAiOpenRouterModelSchema = z.object({
 	output_modalities: z.array(z.string()).optional(),
 	supported_sampling_parameters: z.array(z.string()).optional(),
 	iconUrl: z.string().optional(),
+	reasoning_efforts: z.array(z.string()).optional(), // forked_change
 	pricing: z
 		.object({
 			prompt: z.string().optional(),
@@ -157,6 +159,7 @@ export async function getOpenRouterModels(
 			maxTokens: model.max_output_length,
 			supportedParameters: model.supported_sampling_parameters,
 			iconUrl: model.iconUrl,
+			reasoningEfforts: model.reasoning_efforts,
 		})
 	}
 
@@ -216,6 +219,7 @@ export async function getOpenRouterModels(
 				maxTokens: rawModel.max_output_length,
 				supportedParameters: rawModel.supported_sampling_parameters,
 				iconUrl: rawModel.iconUrl,
+				reasoningEfforts: rawModel.reasoning_efforts,
 			})
 		}
 	} catch (error) {
@@ -262,6 +266,7 @@ export async function getOpenRouterModelEndpoints(
 			maxTokens: staticModel.max_output_length,
 			supportedParameters: staticModel.supported_sampling_parameters,
 			iconUrl: staticModel.iconUrl,
+			reasoningEfforts: staticModel.reasoning_efforts,
 		})
 		return models
 	}
@@ -326,6 +331,7 @@ export async function getOpenRouterModelEndpoints(
 			maxTokens: rawModel.max_output_length,
 			supportedParameters: rawModel.supported_sampling_parameters,
 			iconUrl: rawModel.iconUrl,
+			reasoningEfforts: rawModel.reasoning_efforts,
 		})
 	} catch (error) {
 		console.error(
@@ -349,6 +355,7 @@ export const parseOpenRouterModel = ({
 	maxTokens,
 	supportedParameters,
 	iconUrl, // kilocode_change
+	reasoningEfforts, // forked_change
 }: {
 	id: string
 	model: OpenRouterBaseModel
@@ -358,6 +365,7 @@ export const parseOpenRouterModel = ({
 	maxTokens: number | null | undefined
 	supportedParameters?: string[]
 	iconUrl?: string // kilocode_change
+	reasoningEfforts?: unknown // forked_change: catalog `reasoning_efforts`
 }): ModelInfo => {
 	const cacheWritesPrice = model.pricing?.input_cache_write
 		? parseApiPrice(model.pricing?.input_cache_write)
@@ -383,6 +391,8 @@ export const parseOpenRouterModel = ({
 		displayName,
 		preferredIndex: model.preferredIndex,
 		iconUrl,
+		// Absent on older backends: the selector falls back to a built-in list.
+		reasoningEfforts: Array.isArray(reasoningEfforts) ? reasoningEfforts.filter(isGatewayEffort) : undefined,
 		// forked_change end
 	}
 

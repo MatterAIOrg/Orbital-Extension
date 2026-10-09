@@ -63,6 +63,7 @@ import ChatRow from "./ChatRow"
 import { ChatTextArea } from "./ChatTextArea"
 import OrbitalUpdateBanner from "./OrbitalUpdateBanner"
 import { formatMessageWithDocuments } from "../common/DocumentAttachments"
+import { BackgroundShells } from "./BackgroundShells"
 import ExplorationGroupRow, {
 	ExplorationGroup,
 	isExplorationRelatedMessage,
@@ -341,7 +342,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 	// Rotate marketing cards every 10 seconds
 	useEffect(() => {
 		const interval = setInterval(() => {
-			setActiveMarketingCard((prev) => (prev + 1) % 3)
+			setActiveMarketingCard((prev) => (prev + 1) % 2)
 		}, 10000)
 		return () => clearInterval(interval)
 	}, [])
@@ -1474,6 +1475,13 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 		// Remove the 500-message limit to prevent array index shifting
 		// Virtuoso is designed to efficiently handle large lists through virtualization
 		const newVisibleMessages = modifiedMessages.filter((message) => {
+			// forked_change: thinking is live-only (as in OrbCode). Reasoning shows
+			// while it streams and leaves nothing behind once it completes, in this
+			// session or a resumed one.
+			if (message.say === "reasoning" && message.partial !== true) {
+				return false
+			}
+
 			if (shouldHideApiReqStartedMessage(message)) {
 				everVisibleMessagesTsRef.current.delete(message.ts)
 				return false
@@ -1997,8 +2005,8 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 
 		// Second pass: Group consecutive exploration-related messages
 		// Each tool invocation produces: ask:tool → api_req_started → say:tool
-		// We group all these related messages together, then only create
-		// an ExplorationGroup if there are 2+ exploration tool RESULTS (say:tool)
+		// We group all these related messages together, then create an
+		// ExplorationGroup once the run has at least one finished read-only call
 		const explorationGroupedResult: (ClineMessage | ClineMessage[] | ExplorationGroup)[] = []
 		let currentExplorationGroup: ClineMessage[] = []
 
@@ -2007,8 +2015,9 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 				// Count how many exploration tool RESULTS (say:tool) are in the group
 				const resultCount = currentExplorationGroup.filter((m) => isExplorationToolResult(m)).length
 
-				// Only create a group if there are 2+ tool results
-				if (resultCount >= 2) {
+				// forked_change: any run of read-only calls collapses into one row,
+				// even a single call (OrbCode's grouped tool rows).
+				if (resultCount >= 1) {
 					const lastMsg = currentExplorationGroup[currentExplorationGroup.length - 1]
 					explorationGroupedResult.push({
 						_type: "explorationGroup",
@@ -2050,7 +2059,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 		if (currentExplorationGroup.length > 0) {
 			const resultCount = currentExplorationGroup.filter((m) => isExplorationToolResult(m)).length
 
-			if (resultCount >= 2) {
+			if (resultCount >= 1) {
 				const lastMsg = currentExplorationGroup[currentExplorationGroup.length - 1]
 				explorationGroupedResult.push({
 					_type: "explorationGroup",
@@ -2915,38 +2924,6 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 														</div>
 													</div>
 
-													{/* Axon Models Card */}
-													<div className="w-full flex-shrink-0 px-4 py-1 h-full">
-														<div className="flex flex-col gap-1 h-full justify-center">
-															<div className="flex flex-row gap-2 items-center">
-																<p className="text-sm p-0 m-0 font-semibold text-vscode-foreground">
-																	Introducing Axon Eido 3.2 Model family
-																</p>
-																<img
-																	src={iconsBaseUri + "/matterai-company-ic.svg"}
-																	alt="MatterAI"
-																	className="w-3.5 h-3.5"
-																/>
-															</div>
-															<p className="text-xs p-0 m-0 text-vscode-foreground opacity-70">
-																Cut agent inference costs by 60% using Frontier Axon
-																models
-															</p>
-															<div className="flex flex-row gap-2 mt-0.5">
-																<VSCodeButtonLink
-																	appearance="primary"
-																	href="https://app.matterai.so/api-billing">
-																	Get API key
-																</VSCodeButtonLink>
-																<VSCodeButtonLink
-																	appearance="secondary"
-																	href="https://app.matterai.so/axon-models/axon-eido-3-code-pro">
-																	View Benchmarks
-																</VSCodeButtonLink>
-															</div>
-														</div>
-													</div>
-
 													{/* Orbcode CLI Card */}
 													<div className="w-full flex-shrink-0 px-4 py-1 h-full">
 														<div className="flex flex-col gap-1 h-full justify-center">
@@ -2996,15 +2973,6 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 													onClick={() => setActiveMarketingCard(1)}
 													className={`rounded-full transition-all duration-300 ${
 														activeMarketingCard === 1
-															? "bg-[var(--vscode-button-background)] w-4 h-2"
-															: "bg-[var(--vscode-panel-border)] w-2 h-2 hover:bg-[var(--vscode-descriptionForeground)]"
-													}`}
-													aria-label="Axon Models card"
-												/>
-												<button
-													onClick={() => setActiveMarketingCard(2)}
-													className={`rounded-full transition-all duration-300 ${
-														activeMarketingCard === 2
 															? "bg-[var(--vscode-button-background)] w-4 h-2"
 															: "bg-[var(--vscode-panel-border)] w-2 h-2 hover:bg-[var(--vscode-descriptionForeground)]"
 													}`}
@@ -3089,6 +3057,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 
 					<div
 						className={`${isAgentManagerMode ? `ml-12 ${isAgentFileViewerOpen ? "mr-12" : "mr-64"}` : "mx-0"}`}>
+						<BackgroundShells taskId={currentTaskItem?.id} />
 						<QueuedMessages
 							queue={messageQueue}
 							onRemove={(index) => {

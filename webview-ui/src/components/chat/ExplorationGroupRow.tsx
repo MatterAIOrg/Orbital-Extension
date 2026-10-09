@@ -3,6 +3,8 @@ import { useSize } from "react-use"
 import { useTranslation } from "react-i18next"
 import type { ClineMessage, SuggestionItem } from "@roo-code/types"
 import { safeJsonParse } from "@roo/safeJsonParse"
+import { COMMAND_OUTPUT_STRING } from "@roo/combineCommandSequences"
+import { isReadOnlyCommand } from "@roo/readOnlyCommand"
 import { cn } from "@/lib/utils"
 import { ArrowDown01Icon } from "@/utils/customIcons"
 import ChatRow from "./ChatRow"
@@ -22,7 +24,7 @@ export type ExplorationToolType =
 	| "fetchInstructions"
 	| "checkPastChatMemories"
 	| "useSkill"
-	| "executeCommand"
+	| "checkBackground"
 
 export interface ExplorationGroup {
 	_type: "explorationGroup"
@@ -46,7 +48,7 @@ const EXPLORATION_TOOLS: string[] = [
 	"fetchInstructions",
 	"checkPastChatMemories",
 	"useSkill",
-	"executeCommand",
+	"checkBackground",
 	// snake_case variants (from LLM tool calls)
 	"read_file",
 	"list_files_top_level",
@@ -59,7 +61,7 @@ const EXPLORATION_TOOLS: string[] = [
 	"fetch_instructions",
 	"check_past_chat_memories",
 	"use_skill",
-	"execute_command",
+	"check_background",
 ]
 
 // Helper to extract tool name from message
@@ -113,9 +115,21 @@ function isReasoning(message: ClineMessage): boolean {
 	return message.type === "say" && message.say === "reasoning"
 }
 
-// Check if a message is a command ask
+/** The shell command of a command ask: drops the "MESSAGE:…\n---\n" header and any combined output. */
+export function commandFromAskText(text: string | undefined): string {
+	let remaining = text ?? ""
+	if (remaining.startsWith("MESSAGE:")) {
+		const separatorIdx = remaining.indexOf("\n---\n")
+		if (separatorIdx !== -1) remaining = remaining.slice(separatorIdx + "\n---\n".length)
+	}
+	const outputIdx = remaining.indexOf(COMMAND_OUTPUT_STRING)
+	return (outputIdx === -1 ? remaining : remaining.slice(0, outputIdx)).trim()
+}
+
+// Check if a message is a command ask for a read-only command (rg, ls, git diff, ...).
+// forked_change: mutating commands keep their own rows, as in OrbCode.
 function isCommandAsk(message: ClineMessage): boolean {
-	return message.type === "ask" && message.ask === "command"
+	return message.type === "ask" && message.ask === "command" && isReadOnlyCommand(commandFromAskText(message.text))
 }
 
 // Check if a message is command output
@@ -188,59 +202,112 @@ function normalizeToolName(toolName: string): string {
 		fetch_instructions: "fetchInstructions",
 		check_past_chat_memories: "checkPastChatMemories",
 		use_skill: "useSkill",
-		execute_command: "executeCommand",
+		check_background: "checkBackground",
 	}
 	return toolNameMap[toolName] || toolName
 }
 
-// Count tool types in a group
-// For exploration tools, count complete ask:tool messages (not partial)
-// For write tools, count say:tool messages
-function getToolCounts(messages: ClineMessage[]): { files: number; searches: number; commands: number; other: number } {
-	let files = 0
-	let searches = 0
-	let commands = 0
-	let other = 0
+type ToolPayload = {
+	tool?: string
+	path?: string
+	regex?: string
+	query?: string
+	content?: string
+	operation?: string
+	line?: number
+	additionalFileCount?: number
+	batchFiles?: Array<{ path: string }>
+}
 
-	for (const message of messages) {
-		// Exploration tools: count complete ask:tool messages
-		if (message.type === "ask" && message.ask === "tool" && message.partial !== true) {
-			const tool = safeJsonParse<{ tool?: string }>(message.text || "{}")
-			if (tool?.tool && EXPLORATION_TOOLS.includes(tool.tool)) {
-				const normalizedTool = normalizeToolName(tool.tool)
-				if (
-					normalizedTool === "readFile" ||
-					normalizedTool === "listFilesTopLevel" ||
-					normalizedTool === "listFilesRecursive"
-				) {
-					files++
-				} else if (
-					normalizedTool === "searchFiles" ||
-					normalizedTool === "codebaseSearch" ||
-					normalizedTool === "webSearch"
-				) {
-					searches++
-				} else if (normalizedTool === "executeCommand") {
-					commands++
-				} else {
-					other++
-				}
+/** One finished call in a group: its kind and a one-line description. */
+interface GroupedCall {
+	kind: "read" | "search" | "list" | "command" | "webSearch" | "fetch" | "other"
+	count: number
+	summary: string
+}
+
+function describeToolCall(payload: ToolPayload): GroupedCall {
+	const tool = normalizeToolName(payload.tool ?? "")
+	switch (tool) {
+		case "readFile": {
+			const paths = payload.batchFiles?.map((file) => file.path) ?? (payload.path ? [payload.path] : [])
+			const count = Math.max(1, payload.batchFiles?.length ?? 1 + (payload.additionalFileCount ?? 0))
+			const extra = count - Math.min(paths.length, 1)
+			return {
+				kind: "read",
+				count,
+				summary: `${paths[0] ?? ""}${extra > 0 && paths.length > 0 ? ` and ${extra} more` : ""}`.trim(),
 			}
 		}
-		// Count command asks (separate from tool-based commands)
-		if (message.type === "ask" && message.ask === "command" && message.partial !== true) {
-			commands++
+		case "searchFiles":
+			return {
+				kind: "search",
+				count: 1,
+				summary: `"${payload.regex ?? ""}"${payload.path ? ` in ${payload.path}` : ""}`,
+			}
+		case "codebaseSearch":
+			return { kind: "search", count: 1, summary: `"${payload.query ?? ""}"` }
+		case "listFilesTopLevel":
+		case "listFilesRecursive":
+		case "listCodeDefinitionNames":
+			return { kind: "list", count: 1, summary: payload.path ?? "" }
+		case "webSearch":
+			return { kind: "webSearch", count: 1, summary: `"${payload.query ?? ""}"` }
+		case "webFetch":
+			return { kind: "fetch", count: 1, summary: payload.content ?? "" }
+		case "lsp":
+			return {
+				kind: "other",
+				count: 1,
+				summary:
+					`${payload.operation ?? "lsp"} ${payload.path ?? ""}${payload.line ? `:${payload.line}` : ""}`.trim(),
+			}
+		default:
+			return { kind: "other", count: 1, summary: payload.content ?? payload.query ?? payload.path ?? tool }
+	}
+}
+
+/**
+ * The finished calls in a group, in order. Exploration tools count once their
+ * ask is complete; read-only commands once their command ask is complete.
+ */
+export function getGroupedCalls(messages: ClineMessage[]): GroupedCall[] {
+	const calls: GroupedCall[] = []
+	for (const message of messages) {
+		if (message.partial === true || message.type !== "ask") continue
+		if (message.ask === "command" && isCommandAsk(message)) {
+			calls.push({ kind: "command", count: 1, summary: `$ ${commandFromAskText(message.text).split("\n")[0]}` })
+			continue
 		}
-		// Write tools: count say:tool messages (not exploration tools)
-		if (message.type === "say" && (message.say as string) === "tool") {
-			const tool = safeJsonParse<{ tool?: string }>(message.text || "{}")
-			if (tool?.tool && !EXPLORATION_TOOLS.includes(tool.tool)) {
-				other++
+		if (message.ask === "tool") {
+			const payload = safeJsonParse<ToolPayload>(message.text || "{}")
+			if (payload?.tool && EXPLORATION_TOOLS.includes(payload.tool)) {
+				calls.push(describeToolCall(payload))
 			}
 		}
 	}
+	return calls
+}
 
-	return { files, searches, commands, other }
+const HEADING_KEYS: Record<GroupedCall["kind"], string> = {
+	read: "chat:exploration.read",
+	search: "chat:exploration.searched",
+	list: "chat:exploration.listed",
+	command: "chat:exploration.ran",
+	webSearch: "chat:exploration.webSearched",
+	fetch: "chat:exploration.fetched",
+	other: "chat:exploration.other",
+}
+
+/** "Read 3 files, searched for 2 patterns, ran 1 command" (OrbCode's grouped-row heading). */
+export function getGroupHeading(
+	calls: GroupedCall[],
+	t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+	const tallies = new Map<GroupedCall["kind"], number>()
+	for (const call of calls) tallies.set(call.kind, (tallies.get(call.kind) ?? 0) + call.count)
+	const heading = [...tallies.entries()].map(([kind, count]) => t(HEADING_KEYS[kind], { count })).join(", ")
+	return heading.charAt(0).toUpperCase() + heading.slice(1)
 }
 
 // Format duration in Xs/Ym format (e.g., "5s", "1m30s", "2m")
@@ -277,68 +344,6 @@ function getElapsedTime(startTime: number | null, endTime: number | null, isExpl
 	if (!startTime) return 0
 	const end = isExploring ? Date.now() : endTime || Date.now()
 	return Math.floor((end - startTime) / 1000)
-}
-
-// Generate summary text with time
-function getGroupSummary(
-	messages: ClineMessage[],
-	t: (key: string, options?: Record<string, unknown>) => string,
-	elapsedSeconds: number,
-): string {
-	const counts = getToolCounts(messages)
-	const parts: string[] = []
-
-	if (counts.files > 0) {
-		parts.push(t("chat:exploration.filesCount", { count: counts.files }))
-	}
-	if (counts.searches > 0) {
-		parts.push(t("chat:exploration.searchesCount", { count: counts.searches }))
-	}
-	if (counts.commands > 0) {
-		parts.push(t("chat:exploration.commandsCount", { count: counts.commands }))
-	}
-	if (counts.other > 0) {
-		parts.push(t("chat:exploration.othersCount", { count: counts.other }))
-	}
-
-	const timeStr = formatDuration(elapsedSeconds)
-
-	if (parts.length === 0) {
-		return `${t("chat:exploration.explored")} for ${timeStr}`
-	}
-
-	return `${t("chat:exploration.explored")} ${parts.join(", ")} for ${timeStr}`
-}
-
-// Generate exploring progress text with counts and time
-function getExploringProgress(
-	messages: ClineMessage[],
-	t: (key: string, options?: Record<string, unknown>) => string,
-	elapsedSeconds: number,
-): string {
-	const counts = getToolCounts(messages)
-	const parts: string[] = []
-
-	if (counts.files > 0) {
-		parts.push(t("chat:exploration.filesCount", { count: counts.files }))
-	}
-	if (counts.searches > 0) {
-		parts.push(t("chat:exploration.searchesCount", { count: counts.searches }))
-	}
-	if (counts.commands > 0) {
-		parts.push(t("chat:exploration.commandsCount", { count: counts.commands }))
-	}
-	if (counts.other > 0) {
-		parts.push(t("chat:exploration.othersCount", { count: counts.other }))
-	}
-
-	const timeStr = formatDuration(elapsedSeconds)
-
-	if (parts.length === 0) {
-		return `${t("chat:exploration.exploring")} for ${timeStr}`
-	}
-
-	return `${t("chat:exploration.exploring")} ${parts.join(", ")} for ${timeStr}`
 }
 
 interface ExplorationGroupRowProps {
@@ -471,11 +476,15 @@ export const ExplorationGroupRow = memo((props: ExplorationGroupRowProps) => {
 		}
 	}, [isLast, onToggleExpand, messages])
 
-	// Generate summary text with elapsed time
-	const summary = useMemo(() => getGroupSummary(messages, t, elapsedTime), [messages, t, elapsedTime])
-
-	// Generate exploring progress text with live elapsed time
-	const exploringText = useMemo(() => getExploringProgress(messages, t, elapsedTime), [messages, t, elapsedTime])
+	// forked_change: OrbCode-style heading ("Read 3 files, ran 1 command"); the
+	// live timer only shows while the group is still running.
+	const calls = useMemo(() => getGroupedCalls(messages), [messages])
+	const heading = useMemo(() => getGroupHeading(calls, t), [calls, t])
+	const headerText = isExploring
+		? `${heading || t("chat:exploration.exploring")} · ${formatDuration(elapsedTime)}`
+		: heading || t("chat:exploration.explored")
+	// The ⎿ line swaps to the latest finished call while collapsed.
+	const latestCall = calls[calls.length - 1]
 
 	// Wrap the entire component with useSize to track height changes for scroll adjustment
 	const [rowElement, { height: rowHeight }] = useSize(
@@ -488,9 +497,7 @@ export const ExplorationGroupRow = memo((props: ExplorationGroupRowProps) => {
 				)}
 				onClick={handleToggle}>
 				<div className="flex items-center gap-1">
-					<span className={cn("text-sm font-medium", isExploring && "animate-shimmer")}>
-						{isExploring ? exploringText : summary}
-					</span>
+					<span className={cn("text-sm font-medium", isExploring && "animate-shimmer")}>{headerText}</span>
 				</div>
 				<div className="flex items-center gap-1">
 					<ArrowDown01Icon
@@ -501,6 +508,18 @@ export const ExplorationGroupRow = memo((props: ExplorationGroupRowProps) => {
 					/>
 				</div>
 			</div>
+
+			{!expanded && latestCall?.summary && (
+				<div
+					className={cn(
+						CHAT_CONTENT_HORIZONTAL_PADDING,
+						"truncate font-mono text-xs text-vscode-descriptionForeground/80",
+					)}
+					data-testid="exploration-latest-call"
+					title={latestCall.summary}>
+					⎿ {latestCall.summary}
+				</div>
+			)}
 
 			{/* Expandable content - renders ChatRow for each message */}
 			{expanded && (
