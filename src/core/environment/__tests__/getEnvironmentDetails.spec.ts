@@ -8,15 +8,12 @@ import { getEnvironmentDetails } from "../getEnvironmentDetails"
 import { EXPERIMENT_IDS, experiments } from "../../../shared/experiments"
 import { defaultModeSlug, getFullModeDetails, getModeBySlug, isToolAllowedForMode } from "../../../shared/modes"
 import { getApiMetrics } from "../../../shared/getApiMetrics"
-import { listFiles } from "../../../services/glob/list-files"
 import { TerminalRegistry } from "../../../integrations/terminal/TerminalRegistry"
 import { Terminal } from "../../../integrations/terminal/Terminal"
-import { arePathsEqual } from "../../../utils/path"
 import { FileContextTracker } from "../../context-tracking/FileContextTracker"
 import { ApiHandler } from "../../../api/index"
 import { ClineProvider } from "../../webview/ClineProvider"
 import { RooIgnoreController } from "../../ignore/RooIgnoreController"
-import { formatResponse } from "../../prompts/responses"
 import { Task } from "../../task/Task"
 
 vi.mock("vscode", () => ({
@@ -44,11 +41,8 @@ vi.mock("execa", () => ({
 vi.mock("../../../shared/experiments")
 vi.mock("../../../shared/modes")
 vi.mock("../../../shared/getApiMetrics")
-vi.mock("../../../services/glob/list-files")
 vi.mock("../../../integrations/terminal/TerminalRegistry")
 vi.mock("../../../integrations/terminal/Terminal")
-vi.mock("../../../utils/path")
-vi.mock("../../prompts/responses")
 
 describe("getEnvironmentDetails", () => {
 	const mockCwd = "/test/path"
@@ -126,9 +120,6 @@ describe("getEnvironmentDetails", () => {
 			customInstructions: "Custom instructions",
 		})
 		;(isToolAllowedForMode as Mock).mockReturnValue(true)
-		;(listFiles as Mock).mockResolvedValue([["file1.ts", "file2.ts"], false])
-		;(formatResponse.formatFilesList as Mock).mockReturnValue("file1.ts\nfile2.ts")
-		;(arePathsEqual as Mock).mockReturnValue(false)
 		;(Terminal.compressTerminalOutput as Mock).mockImplementation((output: string) => output)
 		;(TerminalRegistry.getTerminals as Mock).mockReturnValue([])
 		;(TerminalRegistry.getBackgroundTerminals as Mock).mockReturnValue([])
@@ -160,46 +151,20 @@ describe("getEnvironmentDetails", () => {
 		expect(getApiMetrics).toHaveBeenCalledWith(mockCline.clineMessages)
 	})
 
-	it("should include file details when includeFileDetails is true", async () => {
+	it("should point to Bash exploration instead of a file listing when includeFileDetails is true", async () => {
 		const result = await getEnvironmentDetails(mockCline as Task, true)
 		expect(result).toContain("## Current Workspace Directory")
-		expect(result).toContain("Files")
-
-		expect(listFiles).toHaveBeenCalledWith(mockCwd, true, 50)
-
-		expect(formatResponse.formatFilesList).toHaveBeenCalledWith(
-			mockCwd,
-			["file1.ts", "file2.ts"],
-			false,
-			mockCline.rooIgnoreController,
-			false,
-		)
+		expect(result).toContain("No file listing is attached")
+		expect(result).toContain("rg --files")
+		// Per-session system info moved here from the (now static) system prompt.
+		expect(result).toContain("## System Information")
+		expect(result).toContain(`- Current Workspace Directory: ${mockCwd}`)
 	})
 
-	it("should not include file details when includeFileDetails is false", async () => {
-		await getEnvironmentDetails(mockCline as Task, false)
-		expect(listFiles).not.toHaveBeenCalled()
-		expect(formatResponse.formatFilesList).not.toHaveBeenCalled()
-	})
-
-	it("should handle desktop directory specially", async () => {
-		;(arePathsEqual as Mock).mockReturnValue(true)
-		const result = await getEnvironmentDetails(mockCline as Task, true)
-		expect(result).toContain("Desktop files not shown automatically")
-		expect(listFiles).not.toHaveBeenCalled()
-	})
-
-	it("should skip file listing when maxWorkspaceFiles is 0", async () => {
-		mockProvider.getState.mockResolvedValue({
-			...mockState,
-			maxWorkspaceFiles: 0,
-		})
-
-		const result = await getEnvironmentDetails(mockCline as Task, true)
-
-		expect(listFiles).not.toHaveBeenCalled()
-		expect(result).toContain("Workspace files context disabled")
-		expect(formatResponse.formatFilesList).not.toHaveBeenCalled()
+	it("should not include the workspace section when includeFileDetails is false", async () => {
+		const result = await getEnvironmentDetails(mockCline as Task, false)
+		expect(result).not.toContain("Current Workspace Directory")
+		expect(result).not.toContain("## System Information")
 	})
 
 	it("should include recently modified files if any", async () => {

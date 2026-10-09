@@ -23,7 +23,7 @@ import { isEmpty } from "../../utils/object"
 import { PromptVariables, loadSystemPromptFile } from "./sections/custom-system-prompt"
 
 import { type ClineProviderState } from "../webview/ClineProvider" // kilocode_change
-import { addCustomInstructions, getMcpServersSection, getSystemInfoSection } from "./sections"
+import { addCustomInstructions, getMcpServersSection } from "./sections"
 import { getToolDescriptionsForMode } from "./tools"
 import { discoverSkills } from "../tools/skills"
 import type { ContextBreakdownParts } from "../sliding-window/contextBreakdown"
@@ -52,30 +52,10 @@ export function getPromptComponent(
 }
 
 /**
- * Get previous chat titles section for system prompt
+ * Available skills catalog. Sent with the environment details on the first
+ * message (not in the system prompt, which stays static across workspaces).
  */
-function getPreviousChatTitlesSection(history?: HistoryItem[]): string {
-	if (!history || history.length === 0) {
-		return ""
-	}
-
-	// Get titles from history, filter out empty ones, and take last 20
-	const titles = history
-		.filter((item) => item.title && item.title.trim() !== "")
-		.map((item) => item.title)
-		.slice(-20)
-
-	if (titles.length === 0) {
-		return ""
-	}
-
-	return `Previous Chat Titles: ${titles.join(", ")}`
-}
-
-/**
- * Get available skills section for system prompt
- */
-async function getSkillsSection(workspacePath: string): Promise<string> {
+export async function getSkillsSection(workspacePath: string): Promise<string> {
 	const skills = await discoverSkills({ workspacePath })
 
 	if (skills.length === 0) {
@@ -268,6 +248,23 @@ Replace the entire TODO list with an updated checklist reflecting the current st
 IMPORTANT: Use attempt_completion tool when you have completed the task. This signals that you are done.
 `
 
+/**
+ * How this extension actually delivers per-session context. Static, so it
+ * stays part of the cacheable system prompt.
+ */
+const harnessSection = `# Harness
+
+The role definition and tool guide above describe context in generic terms; this is how Orbital actually delivers it:
+
+- Per-session context is sent as conversation messages, not in this system prompt. The first user message may open with <system-reminder> blocks holding the user's custom instructions and rules (including AGENTS.md) and the git status at task start. It ends with the Environment Details: visible files and open tabs, active terminals, current mode and model, the Current Workspace Directory, operating system and shell, linked repositories, the available skills and the current time.
+- <system-reminder> blocks, the Environment Details and <total_tokens> notes come from the harness, not the user. Heed them, but don't mention them in your response to the user.
+- Each later user message and each round of tool results ends with <total_tokens>N tokens left</total_tokens>: the room left in your context window. When the conversation grows long, older context is summarized automatically, so you don't need to wrap up early or hand off mid-task.
+- Text you output outside of tool calls is shown to the user as GitHub-flavored markdown in the VS Code chat panel.
+
+# Workspace
+
+The Current Workspace Directory is the active VS Code project directory, and is therefore the default directory for all tool operations. Commands run in the current workspace directory unless a different cwd is passed; changing directories inside a command does not modify the workspace directory. No file listing is attached; explore the project with Bash (\`ls\`, \`rg --files\`, \`git ls-files\`) rather than guessing at its layout. Prefer a non-recursive \`ls\` for generic directories where you don't need the nested structure, like the Desktop.`
+
 async function generatePromptParts(
 	context: vscode.ExtensionContext,
 	cwd: string,
@@ -290,7 +287,7 @@ async function generatePromptParts(
 	modelId?: string,
 	toolUseStyle?: ToolUseStyle, // kilocode_change
 	clineProviderState?: ClineProviderState, // kilocode_change
-	taskHistory?: HistoryItem[], // kilocode_change: Chat memories
+	_taskHistory?: HistoryItem[], // kilocode_change: Chat memories
 ): Promise<SystemPromptParts> {
 	if (!context) {
 		throw new Error("Extension context is required for generating system prompt")
@@ -317,8 +314,6 @@ async function generatePromptParts(
 	])
 
 	const codeIndexManager = CodeIndexManager.getInstance(context, cwd)
-
-	const previousChatTitlesSection = getPreviousChatTitlesSection(taskHistory)
 
 	const toolDescriptions =
 		toolUseStyle !== "json" // kilocode_change
@@ -348,9 +343,12 @@ async function generatePromptParts(
 	const toolDefinitionSections = toolDescriptions.split(/\n(?=##\s)/).filter((section) => section.trim().length > 0)
 	const toolDefinitionsText = toolDefinitionSections.join("\n")
 
-	// Anything not part of the tool definitions stays in the system prompt
-	// (role definition, tool guidance, system info, etc.).
-	const systemPromptText = [roleDefinition, toolGuidance, previousChatTitlesSection, getSystemInfoSection(cwd)]
+	// The system prompt is static: role definition, tool guidance and the
+	// harness section. Per-session context (git status, AGENTS.md
+	// instructions, environment details, skills, token budget) rides on the
+	// conversation instead, so the provider's prompt cache keeps hitting
+	// across sessions and projects.
+	const systemPromptText = [roleDefinition, toolGuidance, harnessSection]
 		.filter((part) => part && part.trim().length > 0)
 		.join("\n\n")
 
@@ -360,13 +358,9 @@ ${toolDescriptions}
 
 ${toolGuidance}
 
+${harnessSection}
+
 ${mcpServersSection}
-
-${skillsSection}
-
-${previousChatTitlesSection}
-
-${getSystemInfoSection(cwd)}
 `
 
 	return {
@@ -380,6 +374,40 @@ ${getSystemInfoSection(cwd)}
 			subagentDefinitions: "",
 		},
 	}
+}
+
+/** Wrap harness-provided context the model should heed but not echo. */
+export function systemReminder(text: string): string {
+	return `<system-reminder>\n${text}\n</system-reminder>`
+}
+
+/** Context prepended to the first user message: AGENTS.md instructions and the git snapshot. */
+export function buildContextReminders(memorySection: string, gitStatus: string): string {
+	const reminders: string[] = []
+	if (memorySection) {
+		reminders.push(
+			systemReminder(
+				`Codebase and user instructions are shown below. Be sure to adhere to these instructions. IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.\n\n${memorySection}`,
+			),
+		)
+	}
+	if (gitStatus) {
+		reminders.push(
+			systemReminder(
+				`As you answer the user's questions, you can use the following context:\n${gitStatus}\n\nThis context was attached automatically; it isn't part of the user's message.`,
+			),
+		)
+	}
+	return reminders.join("\n")
+}
+
+/** Remaining context-window budget, appended to each user message and tool round. */
+export function tokensLeftNote(tokensLeft: number): string {
+	return `<total_tokens>${Math.max(0, Math.round(tokensLeft))} tokens left</total_tokens>`
+}
+
+export function isTokensLeftNote(text: string): boolean {
+	return text.startsWith("<total_tokens>")
 }
 
 export const SYSTEM_PROMPT = async (
