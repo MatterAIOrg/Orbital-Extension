@@ -87,7 +87,13 @@ import { getGitRepositoryInfo } from "../../utils/git"
 
 // prompts
 import { formatResponse } from "../prompts/responses"
-import { getSystemPromptParts, SYSTEM_PROMPT, type SystemPromptParts } from "../prompts/system"
+import {
+	getSystemPromptParts,
+	SYSTEM_PROMPT,
+	systemReminder,
+	tokensLeftNote,
+	type SystemPromptParts,
+} from "../prompts/system"
 import {
 	buildContextBreakdown,
 	emptyContextBreakdown,
@@ -111,7 +117,6 @@ import {
 	toolUseIdsRequiringResults,
 } from "./toolCallResultPairing" // forked_change: keep assistant tool_calls and tool_results paired 1:1
 import { truncateConversationIfNeeded } from "../sliding-window"
-import { StaleToolResultPruner } from "../sliding-window/staleToolResults"
 import { ClineProvider } from "../webview/ClineProvider"
 import { MultiSearchReplaceDiffStrategy } from "../diff/strategies/multi-search-replace"
 import { MultiFileSearchReplaceDiffStrategy } from "../diff/strategies/multi-file-search-replace"
@@ -125,6 +130,9 @@ import {
 	fetchTaskTitle, // kilocode_change
 } from "../task-persistence"
 import { getEnvironmentDetails } from "../environment/getEnvironmentDetails"
+import { getContextReminders } from "../environment/contextReminders"
+import { backgroundCommandsNote, killBackgroundCommandsFor } from "../../integrations/terminal/BackgroundCommands"
+import { estimateContentTokens } from "../sliding-window/estimate"
 import { checkContextWindowExceededError } from "../context/context-management/context-error-handling"
 import {
 	type CheckpointDiffOptions,
@@ -372,10 +380,11 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	// branch of askApproval so the "Approve for me" mode auto-approves only safe commands.
 	pendingCommandIsDangerous: boolean = false
 	// True when the pending command only observes the workspace (rg, ls, git diff, ...) and
-	// so skips the approval prompt in every approval mode. See core/tools/readOnlyCommand.ts.
+	// so skips the approval prompt in every approval mode. See shared/readOnlyCommand.ts.
 	pendingCommandIsReadOnly: boolean = false
-	// Stubs old bulky tool results in the outgoing request once context is large.
-	private readonly staleToolResultPruner = new StaleToolResultPruner()
+	// forked_change: condense-and-retry attempts after the provider rejected a
+	// request as too long for its context window; reset once a request fits.
+	private contextOverflowRetries = 0
 
 	// TaskStatus
 	idleAsk?: ClineMessage
@@ -2191,7 +2200,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		if (newUserContent.length === 0) {
 			newUserContent.push({
 				type: "text",
-				text: "[TASK RESUMPTION] Resuming task...",
+				text: systemReminder("The user resumed this task. Continue where you left off."),
 			})
 		}
 
@@ -2258,6 +2267,13 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 		// Reset context window usage
 		this.contextWindowUsage = undefined
+
+		// forked_change: background shells are scoped to the task that started them.
+		try {
+			killBackgroundCommandsFor(this.taskId)
+		} catch (error) {
+			console.error("Error stopping background commands:", error)
+		}
 
 		// Dispose message queue and remove event listeners.
 		try {
@@ -2603,12 +2619,28 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			if (recentlyModifiedFiles.length > 0) {
 				// Build a notification message listing the modified files
 				const fileList = recentlyModifiedFiles.map((f) => `  - ${f}`).join("\n")
-				const notification = `The following file(s) have been modified by the user since your last edit:\n${fileList}\n\nPlease use read_file to get the latest content of these files before proceeding further to ensure you're working with the most up-to-date information.`
+				const notification = systemReminder(
+					`The following file(s) have been modified by the user since your last edit:\n${fileList}\n\nPlease use read_file to get the latest content of these files before proceeding further to ensure you're working with the most up-to-date information.`,
+				)
 				// Inject the notification as a separate text block before the user content
 				finalUserContent = [{ type: "text" as const, text: notification }, ...parsedUserContent]
 			} else {
 				finalUserContent = parsedUserContent
 			}
+
+			// forked_change start: Claude Code-style request layout. The task's
+			// first message opens with <system-reminder> blocks (custom
+			// instructions, git snapshot); every later message ends with a
+			// <total_tokens> note. Both are appended once and never rewritten, so
+			// each request extends the previous one and the prompt cache grows.
+			const isFirstMessage = this.apiConversationHistory.length === 0
+			if (isFirstMessage) {
+				const reminders = await getContextReminders(this)
+				if (reminders) {
+					finalUserContent = [{ type: "text" as const, text: reminders }, ...finalUserContent]
+				}
+			}
+			// forked_change end
 
 			// Only add environment details on the first iteration (when includeFileDetails is true)
 			// For subsequent iterations with tool results, don't add environment details to avoid duplication
@@ -2616,6 +2648,18 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				const environmentDetails = await getEnvironmentDetails(this, currentIncludeFileDetails)
 				// Add environment details as its own text block, separate from tool results
 				finalUserContent = [...finalUserContent, { type: "text" as const, text: environmentDetails }]
+			}
+
+			if (!isFirstMessage) {
+				// forked_change: background shells that finished since the last request.
+				const backgroundNote = backgroundCommandsNote(this.taskId)
+				if (backgroundNote) {
+					finalUserContent = [...finalUserContent, { type: "text" as const, text: backgroundNote }]
+				}
+				finalUserContent = [
+					...finalUserContent,
+					{ type: "text" as const, text: tokensLeftNote(this.estimateTokensLeft(finalUserContent)) },
+				]
 			}
 
 			await this.addToApiConversationHistory({ role: "user", content: finalUserContent })
@@ -4229,18 +4273,16 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		}
 
 		const messagesSinceLastSummary = getMessagesSinceLastSummary(this.apiConversationHistory)
-		let cleanConversationHistory = maybeRemoveImageBlocks(messagesSinceLastSummary, this.api).map((msg) => ({
+		// forked_change: history is sent append-only until it is condensed.
+		// Rewriting an earlier message (e.g. stubbing old tool results) changes
+		// the request prefix and throws away the provider's prompt cache from
+		// that point on.
+		const cleanConversationHistory = maybeRemoveImageBlocks(messagesSinceLastSummary, this.api).map((msg) => ({
 			role: msg.role,
 			content: msg.content,
 			// kilocode_change: preserve reasoning
 			...("reasoning" in msg ? { reasoning: (msg as any).reasoning } : {}),
 		}))
-		// Only the outgoing copy is pruned; apiConversationHistory keeps every result.
-		cleanConversationHistory = this.staleToolResultPruner.apply(
-			cleanConversationHistory,
-			this.getTokenUsage().contextTokens ?? 0,
-			this.api.getModel().info.contextWindow,
-		)
 
 		// forked_change start
 		// Fetch project properties for KiloCode provider tracking
@@ -4390,6 +4432,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				iterator,
 				retryAttempt >= MAX_CONNECTION_RETRIES ? FINAL_ATTEMPT_IDLE_TIMEOUT_MS : undefined,
 			)
+			// forked_change: the request fit the window, so a later overflow gets a fresh retry budget.
+			this.contextOverflowRetries = 0
 			yield firstChunk.value
 			this.isWaitingForFirstChunk = false
 		} catch (error) {
@@ -4427,6 +4471,26 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				return
 			}
 			// forked_change end
+
+			// forked_change start: the provider says the conversation no longer fits
+			// its context window (a resumed task on a smaller-window model, or tool
+			// output the last usage report didn't cover). Resending the same request
+			// can't succeed, so condense and retry instead of failing the turn.
+			if (
+				checkContextWindowExceededError(error) &&
+				this.contextOverflowRetries < MAX_CONTEXT_WINDOW_RETRIES &&
+				!this.abort
+			) {
+				this.contextOverflowRetries++
+				console.warn(
+					`[Task#${this.taskId}.${this.instanceId}] context window exceeded (attempt ${this.contextOverflowRetries}/${MAX_CONTEXT_WINDOW_RETRIES}); condensing and retrying`,
+				)
+				await this.handleContextWindowExceededError()
+				yield* this.attemptApiRequestUnlocked(retryAttempt)
+				return
+			}
+			// forked_change end
+
 			// note that this api_req_failed ask is unique in that we only present this option if the api hasn't streamed any content yet (ie it fails on the first chunk due), as it would allow them to hit a retry button. However if the api failed mid-stream, it could be in any arbitrary state where some tools may have executed, so that error is handled differently and requires cancelling the task entirely.
 
 			// forked_change: transient provider connection failures (socket closed by the
@@ -4650,6 +4714,17 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 	public getTokenUsage(): TokenUsage {
 		return getApiMetrics(this.combineMessages(this.clineMessages.slice(1)))
+	}
+
+	/**
+	 * forked_change: context window left once `pendingContent` is sent — the last
+	 * reported context size plus a rough estimate for the new content, which the
+	 * provider hasn't measured yet.
+	 */
+	private estimateTokensLeft(pendingContent: Anthropic.Messages.ContentBlockParam[]): number {
+		const contextWindow = this.api.getModel().info.contextWindow
+		const { contextTokens } = this.getTokenUsage()
+		return contextWindow - (contextTokens ?? 0) - estimateContentTokens(pendingContent)
 	}
 
 	public recordToolUsage(toolName: ToolName) {

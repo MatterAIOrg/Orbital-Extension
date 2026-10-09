@@ -6,6 +6,8 @@ import { t } from "../../i18n"
 import { ApiHandler } from "../../api"
 import { ApiMessage } from "../task-persistence/apiMessages"
 import { maybeRemoveImageBlocks } from "../../api/transform/image-cleaning"
+import { checkContextWindowExceededError } from "../context/context-management/context-error-handling"
+import { CHARS_PER_TOKEN, estimateContentTokens } from "../sliding-window/estimate"
 
 export const N_MESSAGES_TO_KEEP = 3
 export const MIN_CONDENSE_THRESHOLD = 5 // Minimum percentage of context window to trigger condensing
@@ -54,6 +56,15 @@ RULES:
 // of redoing it (re-searching, re-reading files, re-deriving facts).
 export const SUMMARY_PREFIX = `\
 [CONTEXT COMPACTION] An earlier assistant began this task and produced the summary below as a handoff. Treat it as the authoritative record of all work so far: do NOT repeat anything it describes — no re-running searches, no re-reading files it covers, no re-deriving facts it states. Continue from NEXT STEPS.`
+
+/**
+ * Share of the context window the summary request may use, tried in order
+ * when the provider rejects it as too long. The smaller budgets cover
+ * upstreams whose real window is under the catalog's.
+ */
+const SUMMARY_BUDGET_FRACTIONS = [0.6, 0.3, 0.15]
+/** A trimmed summary request still sends the most recent tool results verbatim. */
+const KEEP_RECENT_TOOL_RESULTS = 4
 
 export type SummarizeResponse = {
 	messages: ApiMessage[] // The messages after summarization
@@ -138,10 +149,6 @@ export async function summarizeConversation(
 		content: "Summarize the conversation so far, as described in the prompt instructions.",
 	}
 
-	const requestMessages = maybeRemoveImageBlocks([...messagesToSummarize, finalRequestMessage], apiHandler).map(
-		({ role, content }) => ({ role, content }),
-	)
-
 	// Note: this doesn't need to be a stream, consider using something like apiHandler.completePrompt
 	// Use custom prompt if provided and non-empty, otherwise use the default SUMMARY_PROMPT
 	const promptToUse = customCondensingPrompt?.trim() ? customCondensingPrompt.trim() : SUMMARY_PROMPT
@@ -168,21 +175,52 @@ export async function summarizeConversation(
 		}
 	}
 
-	const stream = handlerToUse.createMessage(promptToUse, requestMessages)
-
+	// forked_change start: the summary request carries the whole history, so
+	// once that outgrows the window it would fail exactly when condensing is
+	// needed. Under budget it is sent unchanged (keeping the prompt cache warm);
+	// past it, it is trimmed, with smaller budgets tried if the provider still
+	// says it doesn't fit.
+	const contextWindow = handlerToUse.getModel().info.contextWindow
 	let summary = ""
 	let cost = 0
 	let outputTokens = 0
+	let summarized = false
+	let lastError: unknown
 
-	for await (const chunk of stream) {
-		if (chunk.type === "text") {
-			summary += chunk.text
-		} else if (chunk.type === "usage") {
-			// Record final usage chunk only
-			cost = chunk.totalCost ?? 0
-			outputTokens = chunk.outputTokens ?? 0
+	for (const fraction of SUMMARY_BUDGET_FRACTIONS) {
+		const source = fitSummarySource(messagesToSummarize, Math.floor(contextWindow * fraction))
+		const requestMessages = maybeRemoveImageBlocks([...source, finalRequestMessage], apiHandler).map(
+			({ role, content }) => ({ role, content }),
+		)
+		summary = ""
+		cost = 0
+		outputTokens = 0
+		try {
+			const stream = handlerToUse.createMessage(promptToUse, requestMessages)
+			for await (const chunk of stream) {
+				if (chunk.type === "text") {
+					summary += chunk.text
+				} else if (chunk.type === "usage") {
+					// Record final usage chunk only
+					cost = chunk.totalCost ?? 0
+					outputTokens = chunk.outputTokens ?? 0
+				}
+			}
+			summarized = true
+			break
+		} catch (error) {
+			if (!checkContextWindowExceededError(error)) {
+				throw error
+			}
+			lastError = error
 		}
 	}
+
+	if (!summarized) {
+		console.warn("[summarizeConversation] summary request did not fit the context window:", lastError)
+		return { ...response, error: t("common:errors.condense_failed") }
+	}
+	// forked_change end
 
 	summary = summary.trim()
 
@@ -222,6 +260,77 @@ export async function summarizeConversation(
 		return { ...response, cost, error }
 	}
 	return { messages: newMessages, summary, cost, newContextTokens }
+}
+
+/**
+ * forked_change: the history for a summary request, trimmed to `budgetTokens`
+ * when it doesn't fit. Older tool results are stubbed, oversized text cut, and
+ * the oldest whole rounds dropped, keeping the first message (the task). Each
+ * kept round starts at an assistant message so no tool result loses its call.
+ */
+export function fitSummarySource(messages: ApiMessage[], budgetTokens: number): ApiMessage[] {
+	const size = (list: ApiMessage[]) =>
+		list.reduce((total, message) => total + estimateContentTokens(message.content), 0)
+	if (size(messages) <= budgetTokens) return messages
+
+	// Stub every tool result except the most recent few.
+	let toolResultsSeen = 0
+	const stubbed = [...messages].reverse().map((message) => {
+		if (typeof message.content === "string") return message
+		const content = [...message.content].reverse().map((block) => {
+			if (block.type !== "tool_result") return block
+			toolResultsSeen++
+			if (toolResultsSeen <= KEEP_RECENT_TOOL_RESULTS) return block
+			const text =
+				typeof block.content === "string"
+					? block.content
+					: (block.content ?? []).map((part) => (part.type === "text" ? part.text : "")).join("\n")
+			const lines = text.split("\n").length
+			return { ...block, content: `[Tool result (${lines} lines) omitted to fit the summary request.]` }
+		})
+		return { ...message, content: content.reverse() }
+	})
+	stubbed.reverse()
+
+	// Cut any single message's text that would dominate the budget.
+	const maxChars = Math.floor((budgetTokens * CHARS_PER_TOKEN) / 4)
+	const marker = "\n[… truncated to fit the context window …]"
+	let trimmed = stubbed.map((message) => {
+		if (typeof message.content === "string") {
+			return message.content.length > maxChars
+				? { ...message, content: message.content.slice(0, maxChars) + marker }
+				: message
+		}
+		return {
+			...message,
+			content: message.content.map((block) =>
+				block.type === "text" && block.text.length > maxChars
+					? { ...block, text: block.text.slice(0, maxChars) + marker }
+					: block,
+			),
+		}
+	})
+	if (size(trimmed) <= budgetTokens || trimmed.length < 3) return trimmed
+
+	// Drop the oldest rounds, keeping the first message.
+	const [first, ...rest] = trimmed
+	let start = 0
+	while (size([first, ...rest.slice(start)]) > budgetTokens) {
+		const next = rest.findIndex((message, index) => index > start && message.role === "assistant")
+		if (next === -1) break
+		start = next
+	}
+	if (start === 0) return trimmed
+	const note = `[${start} earlier messages omitted to fit the context window.]`
+	const firstWithNote: ApiMessage = {
+		...first,
+		content:
+			typeof first.content === "string"
+				? `${first.content}\n\n${note}`
+				: [...first.content, { type: "text", text: note }],
+	}
+	trimmed = [firstWithNote, ...rest.slice(start)]
+	return trimmed
 }
 
 /* Returns the list of all messages since the last summary message, including the summary. Returns all messages if there is no summary. */
