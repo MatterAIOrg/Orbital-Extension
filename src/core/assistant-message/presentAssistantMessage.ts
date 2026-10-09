@@ -43,6 +43,7 @@ import { reportBugTool } from "../tools/reportBugTool" // kilocode_change
 import { validateToolUse } from "../tools/validateToolUse"
 import { webFetchTool } from "../tools/webFetchTool"
 import { webSearchTool } from "../tools/webSearchTool"
+import { checkBackgroundTool, killBackgroundTool } from "../tools/backgroundCommandTools" // forked_change
 import { figmaFetchTool } from "../tools/figmaFetchTool"
 import { askFollowupQuestionTool } from "../tools/askFollowupQuestionTool"
 import { MAX_PARALLEL_READ_ONLY_TOOLS, MAX_TOOL_REPETITION_AUTO_RETRIES } from "../tools/toolExecutionPolicy"
@@ -298,6 +299,9 @@ export async function presentAssistantMessage(cline: Task, options: PresentAssis
 						return `[${block.name} for '${block.params.url}']`
 					case "web_search":
 						return `[${block.name} for '${block.params.query}']`
+					case "check_background":
+					case "kill_background":
+						return `[${block.name} for '${block.params.id}']`
 					default:
 						return `[${block.name}]`
 				}
@@ -925,6 +929,14 @@ export async function presentAssistantMessage(cline: Task, options: PresentAssis
 					case "web_search":
 						await webSearchTool(cline, block, askApproval, handleError, pushToolResult, removeClosingTag)
 						break
+					// forked_change start: background shells
+					case "check_background":
+						await checkBackgroundTool(cline, block, handleError, pushToolResult, removeClosingTag)
+						break
+					case "kill_background":
+						await killBackgroundTool(cline, block, handleError, pushToolResult, removeClosingTag)
+						break
+					// forked_change end
 					default:
 						break
 				}
