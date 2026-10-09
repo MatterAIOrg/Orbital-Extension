@@ -208,6 +208,26 @@ export function convertToOpenAiMessages(
 }
 
 /**
+ * forked_change: replay each assistant message's stored reasoning under the
+ * OpenAI-compatible `reasoning_content` field instead of `reasoning`. The
+ * message is sent back unchanged on every later request, so the model sees its
+ * earlier thinking and the provider's prompt cache keeps matching.
+ */
+export function replayReasoningAsContent(
+	messages: OpenAI.Chat.ChatCompletionMessageParam[],
+): OpenAI.Chat.ChatCompletionMessageParam[] {
+	return messages.map((message) => {
+		if (message.role !== "assistant") return message
+		const { reasoning, ...rest } = message as OpenAI.Chat.ChatCompletionAssistantMessageParam & {
+			reasoning?: string
+			reasoning_content?: string
+		}
+		if (!reasoning) return message
+		return (rest.reasoning_content ? rest : { ...rest, reasoning_content: reasoning }) as typeof message
+	})
+}
+
+/**
  * Ensures every assistant `tool_calls` entry is followed by a `tool` message for its
  * id. Any tool_call left unanswered gets a synthesized `tool` message with empty
  * content inserted right after the assistant message's existing tool results, so the

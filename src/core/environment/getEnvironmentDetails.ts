@@ -1,4 +1,3 @@
-import os from "os"
 import path from "path"
 
 import delay from "delay"
@@ -10,15 +9,13 @@ import { DEFAULT_TERMINAL_OUTPUT_CHARACTER_LIMIT } from "@roo-code/types"
 
 import { Terminal } from "../../integrations/terminal/Terminal"
 import { TerminalRegistry } from "../../integrations/terminal/TerminalRegistry"
-import { listFiles } from "../../services/glob/list-files"
 import { EXPERIMENT_IDS, experiments as Experiments } from "../../shared/experiments"
 import { getApiMetrics } from "../../shared/getApiMetrics"
 import { formatLanguage } from "../../shared/language"
 import { defaultModeSlug, getFullModeDetails } from "../../shared/modes"
-import { getGitRepositoryInfo } from "../../utils/git"
-import { arePathsEqual } from "../../utils/path"
 import { renderLinkedReposSection } from "../../services/links"
-import { formatResponse } from "../prompts/responses"
+import { getSkillsSection } from "../prompts/system"
+import { getSystemInfoSection } from "../prompts/sections"
 
 import { Task } from "../task/Task"
 
@@ -208,63 +205,6 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 	const timeZoneOffsetStr = `${timeZoneOffset >= 0 ? "+" : "-"}${timeZoneOffsetHours}:${timeZoneOffsetMinutes.toString().padStart(2, "0")}`
 	details += `\n\n## Current Time\nCurrent time in ISO 8601 UTC format: ${now.toISOString()}\nUser time zone: ${timeZone}, UTC${timeZoneOffsetStr}`
 
-	// Add Git repository information.
-	try {
-		const gitInfo = await getGitRepositoryInfo(cline.cwd)
-		const hasGitInfo = gitInfo.repositoryUrl || gitInfo.repositoryName
-
-		// Get current branch and default branch using git commands
-		let currentBranch = ""
-		let defaultBranch = ""
-
-		try {
-			const { exec } = await import("child_process")
-			const { promisify } = await import("util")
-			const execAsync = promisify(exec)
-
-			// Get current branch
-			const currentBranchResult = await execAsync("git branch --show-current", {
-				cwd: cline.cwd,
-				timeout: 5000,
-			}).catch(() => ({ stdout: "" }))
-			currentBranch = currentBranchResult.stdout.trim()
-
-			// Get default branch from remote HEAD reference
-			const defaultBranchResult = await execAsync("git symbolic-ref refs/remotes/origin/HEAD", {
-				cwd: cline.cwd,
-				timeout: 5000,
-			}).catch(() => ({ stdout: "" }))
-			const defaultBranchMatch = defaultBranchResult.stdout.match(/refs\/remotes\/origin\/(.+)/)
-			if (defaultBranchMatch && defaultBranchMatch[1]) {
-				defaultBranch = defaultBranchMatch[1].trim()
-			}
-		} catch {
-			// Ignore errors getting branch info
-		}
-
-		if (hasGitInfo || currentBranch || defaultBranch) {
-			details += "\n\n## Git Repository Information"
-
-			if (gitInfo.repositoryUrl) {
-				details += `\n- Repository URL: ${gitInfo.repositoryUrl}`
-			}
-
-			if (gitInfo.repositoryName) {
-				details += `\n- Repository Name: ${gitInfo.repositoryName}`
-			}
-
-			if (defaultBranch) {
-				details += `\n- Default Branch: ${defaultBranch}`
-			}
-
-			if (currentBranch) {
-				details += `\n- Current Branch: ${currentBranch}`
-			}
-		}
-	} catch {
-		// Ignore errors getting git info
-	}
-
 	// Add context tokens information.
 	const { contextTokens, totalCost } = getApiMetrics(cline.clineMessages)
 
@@ -320,34 +260,15 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 	}
 
 	if (includeFileDetails) {
-		details += `\n\n## Current Workspace Directory (${cline.cwd.toPosix()}) Files\n`
-		const isDesktop = arePathsEqual(cline.cwd, path.join(os.homedir(), "Desktop"))
+		// forked_change: no automatic file listing. It differed per workspace and
+		// session, which rewrote the first request and defeated the provider's
+		// prompt cache; the model explores with Bash instead.
+		details += `\n\n## Current Workspace Directory (${cline.cwd.toPosix()})\nNo file listing is attached; explore the project with Bash (\`ls\`, \`rg --files\`, \`git ls-files\`) rather than guessing at its layout. Prefer a non-recursive \`ls\` for generic directories where you don't need the nested structure, like the Desktop.`
 
-		if (isDesktop) {
-			// Don't want to immediately access desktop since it would show
-			// permission popup.
-			details += "(Desktop files not shown automatically. Use ls or find via Bash to explore if needed.)"
-		} else {
-			const maxFiles = maxWorkspaceFiles ?? 200
-
-			// Early return for limit of 0
-			if (maxFiles === 0) {
-				details += "(Workspace files context disabled. Use ls or find via Bash to explore if needed.)"
-			} else {
-				const [files, didHitLimit] = await listFiles(cline.cwd, true, maxFiles)
-				const { showRooIgnoredFiles = false } = state ?? {}
-
-				const result = formatResponse.formatFilesList(
-					cline.cwd,
-					files,
-					didHitLimit,
-					cline.rooIgnoreController,
-					showRooIgnoredFiles,
-				)
-
-				details += result
-			}
-		}
+		// forked_change: per-session context that used to live in the system
+		// prompt (OS, shells, directories, skills catalog). Kept out of it so
+		// the system prompt is byte-identical across sessions and workspaces.
+		details += `\n\n${getSystemInfoSection(cline.cwd)}`
 
 		// forked_change start: linked repositories (.orb/links.json). Shared with
 		// the OrbCode CLI; gated behind includeFileDetails so it only rides along
@@ -357,6 +278,11 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 			details += `\n\n${linkedRepos}`
 		}
 		// forked_change end
+
+		const skills = await getSkillsSection(cline.cwd)
+		if (skills) {
+			details += `\n\n## Available Skills\n${skills.trim()}`
+		}
 	}
 
 	// const todoListEnabled =

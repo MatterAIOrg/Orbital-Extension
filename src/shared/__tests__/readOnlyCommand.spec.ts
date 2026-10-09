@@ -1,4 +1,4 @@
-// npx vitest run src/core/tools/__tests__/readOnlyCommand.spec.ts
+// npx vitest run src/shared/__tests__/readOnlyCommand.spec.ts
 
 import { describe, expect, it } from "vitest"
 

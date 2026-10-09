@@ -48,6 +48,8 @@ export const toolNames = [
 	"web_search",
 	"figma_fetch",
 	"generate_file",
+	"check_background", // forked_change: background shells
+	"kill_background", // forked_change: background shells
 ] as const
 
 export const toolNamesSchema = z.enum(toolNames)

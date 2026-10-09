@@ -3,6 +3,8 @@ import askFollowupQuestion from "./ask_followup_question"
 import attemptCompletion from "./attempt_completion"
 import checkPastChatMemories from "./check_past_chat_memories"
 import bash from "./bash"
+import checkBackground from "./check_background"
+import killBackground from "./kill_background"
 import listCodeDefinitionNames from "./list_code_definition_names"
 import lsp from "./lsp"
 import { read_file } from "./read_file"
@@ -20,7 +22,7 @@ import generateFile from "./generate_file"
 // The model-facing shell tool is "Bash" (internal name: execute_command, see
 // shared/toolAliases.ts). list_files / search_files are intentionally not
 // offered: the model uses rg/find/ls through Bash, and read-only commands skip
-// the approval prompt (see core/tools/readOnlyCommand.ts).
+// the approval prompt (see shared/readOnlyCommand.ts).
 export const nativeTools = [
 	fileEdit,
 	multiFileEdit,
@@ -30,6 +32,8 @@ export const nativeTools = [
 	checkPastChatMemories,
 	codebaseSearch,
 	bash,
+	checkBackground,
+	killBackground,
 	listCodeDefinitionNames,
 	lsp,
 	read_file,

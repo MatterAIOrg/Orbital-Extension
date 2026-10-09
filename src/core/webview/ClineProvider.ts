@@ -106,6 +106,12 @@ import { OpenRouterHandler } from "../../api/providers"
 import { stringifyError } from "../../shared/kilocode/errorUtils"
 import isWsl from "is-wsl"
 import { getKilocodeDefaultModel } from "../../api/providers/kilocode/getKilocodeDefaultModel"
+import { setModelEffortsSource } from "../../api/providers/kilocode/modelEfforts" // forked_change
+import {
+	listBackgroundCommands,
+	readBackgroundOutputTail,
+	subscribeBackgroundCommands,
+} from "../../integrations/terminal/BackgroundCommands" // forked_change
 import { isValidKilocodeModel } from "../../api/providers/kilocode-models"
 import { getModels, flushModels } from "../../api/providers/fetchers/modelCache"
 import { type RouterName, type ModelRecord, type GetModelsOptions } from "../../shared/api"
@@ -180,6 +186,7 @@ export class ClineProvider
 	public readonly latestAnnouncementId = "sep-2025-code-supernova-1m" // Code Supernova 1M context window announcement
 	public readonly providerSettingsManager: ProviderSettingsManager
 	public readonly customModesManager: CustomModesManager
+	private backgroundCommandsUnsubscribe?: () => void // forked_change
 
 	constructor(
 		readonly context: vscode.ExtensionContext,
@@ -199,6 +206,14 @@ export class ClineProvider
 
 		this.mdmService = mdmService
 		this.updateGlobalState("codebaseIndexModels", EMBEDDING_MODEL_PROFILES)
+
+		// forked_change: the MatterAI handler reads effort picks per request.
+		setModelEffortsSource(() => this.contextProxy.getGlobalState("modelEfforts"))
+
+		// forked_change: keep the running-shells bar current as commands start and finish.
+		this.backgroundCommandsUnsubscribe = subscribeBackgroundCommands(() => {
+			void this.postBackgroundCommands()
+		})
 
 		// Start configuration loading (which might trigger indexing) in the background.
 		// Don't await, allowing activation to continue immediately.
@@ -941,6 +956,8 @@ export class ClineProvider
 
 	async dispose() {
 		this.log("Disposing ClineProvider...")
+
+		this.backgroundCommandsUnsubscribe?.() // forked_change
 
 		// Clear all tasks from the stack.
 		while (this.clineStack.length > 0) {
@@ -2210,6 +2227,28 @@ ${prompt}
 		await this.postStateToWebview()
 	}
 
+	/** forked_change: the current task's running background shells, for the bar above the chat input. */
+	async postBackgroundCommands() {
+		const taskId = this.getCurrentTask()?.taskId
+		const backgroundCommands = taskId
+			? listBackgroundCommands(taskId)
+					.filter((cmd) => cmd.status === "running")
+					.map((cmd) => ({
+						id: cmd.id,
+						command: cmd.command,
+						cwd: cmd.cwd,
+						pid: cmd.pid,
+						startedAt: cmd.startedAt,
+						lastLine: readBackgroundOutputTail(cmd.id, 2048)
+							.split("\n")
+							.map((line) => line.trim())
+							.filter(Boolean)
+							.pop(),
+					}))
+			: []
+		await this.postMessageToWebview({ type: "backgroundCommands", backgroundCommands })
+	}
+
 	async postStateToWebview() {
 		const state = await this.getStateToPostToWebview()
 		this.postMessageToWebview({ type: "state", state })
@@ -2531,6 +2570,7 @@ ${prompt}
 			featureRoomoteControlEnabled,
 			yoloMode, // kilocode_change
 			commandApprovalMode, // forked_change
+			modelEfforts, // forked_change
 		} = await this.getState()
 
 		let cloudOrganizations: CloudOrganizationMembership[] = []
@@ -2630,6 +2670,7 @@ ${prompt}
 			alwaysAllowUpdateTodoList: alwaysAllowUpdateTodoList ?? true,
 			yoloMode: yoloMode ?? false, // kilocode_change
 			commandApprovalMode: commandApprovalMode ?? "approveForMe", // forked_change
+			modelEfforts: modelEfforts ?? {}, // forked_change
 			allowedMaxRequests,
 			allowedMaxCost,
 			autoCondenseContext: autoCondenseContext ?? true,
@@ -2904,6 +2945,7 @@ ${prompt}
 			alwaysAllowUpdateTodoList: stateValues.alwaysAllowUpdateTodoList ?? true, // kilocode_change
 			yoloMode: stateValues.yoloMode ?? false, // kilocode_change
 			commandApprovalMode: stateValues.commandApprovalMode ?? "approveForMe", // forked_change
+			modelEfforts: stateValues.modelEfforts ?? {}, // forked_change
 			followupAutoApproveTimeoutMs: stateValues.followupAutoApproveTimeoutMs ?? 60000,
 			diagnosticsEnabled: stateValues.diagnosticsEnabled ?? true,
 			allowedMaxRequests: stateValues.allowedMaxRequests,

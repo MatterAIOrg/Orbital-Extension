@@ -32,6 +32,11 @@ import {
 
 // Maximum number of lines to read when limit is not specified - prevents context window overflow
 const MAX_READ_FILE_LINES = 1000
+// forked_change: line limits don't bound minified or generated files (one line
+// can be megabytes), so reads are capped by characters as well.
+const MAX_READ_CHARS_PER_FILE = 100_000
+const MAX_READ_CHARS_PER_CALL = 200_000
+const MIN_READ_BUDGET_CHARS = 1_000
 // Native JSON models tend to over-fragment reads. Expanding their tiny ranges
 // avoids another model round trip while keeping legacy/XML range semantics exact.
 const MIN_NATIVE_READ_FILE_LINES = 200
@@ -80,7 +85,7 @@ interface FileEntry {
 }
 
 // Interface to track file processing state
-interface FileResult {
+export interface FileResult {
 	path: string
 	status: "approved" | "denied" | "blocked" | "error" | "pending"
 	content?: string
@@ -98,6 +103,44 @@ interface FileResult {
 	totalLines?: number
 	startLine?: number
 	endLine?: number
+}
+
+/**
+ * forked_change: cap served text at MAX_READ_CHARS_PER_FILE per file and
+ * MAX_READ_CHARS_PER_CALL across the call. Content is cut at a line boundary
+ * when possible; a single line longer than the budget is cut mid-line.
+ */
+export function capReadResultsByCharacters(fileResults: FileResult[]): void {
+	let charsReturned = 0
+	for (const result of fileResults) {
+		const content = result.xmlContent
+		if (!content || result.status !== "approved" || result.error || result.imageDataUrl || result.wasRepeated) {
+			continue
+		}
+		const budget = Math.min(MAX_READ_CHARS_PER_FILE, MAX_READ_CHARS_PER_CALL - charsReturned)
+		// A sliver of leftover budget would return a useless fragment.
+		if (budget < MIN_READ_BUDGET_CHARS) {
+			result.xmlContent = `[skipped] This call reached its ${MAX_READ_CHARS_PER_CALL}-character limit. Read ${result.path} in a separate call.`
+			result.startLine = undefined
+			result.endLine = undefined
+			continue
+		}
+		if (content.length <= budget) {
+			charsReturned += content.length
+			continue
+		}
+		const lineEnd = content.lastIndexOf("\n", budget)
+		const kept = lineEnd > 0 ? content.slice(0, lineEnd) : content.slice(0, budget)
+		const firstLine = result.startLine ?? 1
+		const lastLineShown = firstLine - 1 + kept.split("\n").length
+		if (result.endLine !== undefined) result.endLine = Math.min(result.endLine, lastLineShown)
+		const note =
+			lineEnd > 0
+				? `(Output capped at ${budget} characters; showing through about line ${lastLineShown}. Use offset/limit to read more.)`
+				: `(Line ${firstLine} alone exceeds ${budget} characters and was cut off. Use Bash (e.g. head -c, cut -c) to read part of it.)`
+		result.xmlContent = `${kept}\n\n${note}`
+		charsReturned += kept.length
+	}
 }
 
 // forked_change: key for Task.readRegionHistory — identifies one exact read request.
@@ -685,6 +728,8 @@ Do not stop or ask the user because of this skipped read; proceed with the best 
 				await handleError(`reading file ${relPath}`, error instanceof Error ? error : new Error(errorMsg))
 			}
 		}
+
+		capReadResultsByCharacters(fileResults)
 
 		// forked_change: prepend overlap notices to served content so the model
 		// is aware it is partially re-reading a region.

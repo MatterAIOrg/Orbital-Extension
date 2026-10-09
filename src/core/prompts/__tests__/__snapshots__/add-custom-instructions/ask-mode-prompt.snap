@@ -545,18 +545,17 @@ Replace the entire TODO list with an updated checklist reflecting the current st
 IMPORTANT: Use attempt_completion tool when you have completed the task. This signals that you are done.
 
 
+# Harness
+
+The role definition and tool guide above describe context in generic terms; this is how Orbital actually delivers it:
+
+- Per-session context is sent as conversation messages, not in this system prompt. The first user message may open with <system-reminder> blocks holding the user's custom instructions and rules (including AGENTS.md) and the git status at task start. It ends with the Environment Details: visible files and open tabs, active terminals, current mode and model, the Current Workspace Directory, operating system and shell, linked repositories, the available skills and the current time.
+- <system-reminder> blocks, the Environment Details and <total_tokens> notes come from the harness, not the user. Heed them, but don't mention them in your response to the user.
+- Each later user message and each round of tool results ends with <total_tokens>N tokens left</total_tokens>: the room left in your context window. When the conversation grows long, older context is summarized automatically, so you don't need to wrap up early or hand off mid-task.
+- Text you output outside of tool calls is shown to the user as GitHub-flavored markdown in the VS Code chat panel.
+
+# Workspace
+
+The Current Workspace Directory is the active VS Code project directory, and is therefore the default directory for all tool operations. Commands run in the current workspace directory unless a different cwd is passed; changing directories inside a command does not modify the workspace directory. No file listing is attached; explore the project with Bash (`ls`, `rg --files`, `git ls-files`) rather than guessing at its layout. Prefer a non-recursive `ls` for generic directories where you don't need the nested structure, like the Desktop.
 
 
-
-
-
-
-# System Information
-
-- Operating System: Linux
-- Default Shell: /bin/zsh
-- Bash Tool Shell: bash (write commands in bash syntax)
-- Home Directory: /home/user
-- Current Workspace Directory: /test/path
-
-The Current Workspace Directory is the active VS Code project directory, and is therefore the default directory for all tool operations. New terminals will be created in the current workspace directory, however if you change directories in a terminal it will then have a different working directory; changing directories in a terminal does not modify the workspace directory, because you do not have access to change the workspace directory. When the user initially gives you a task, a recursive list of all filepaths in the current workspace directory ('/test/path') will be included in the Environment Details section. This provides an overview of the project's file structure, offering key insights into the project from directory/file names (how developers conceptualize and organize their code) and file extensions (the language used). This can also guide decision-making on which files to explore further. If you need to further explore directories such as outside the current workspace directory, you can use ls or find through the Bash tool. Prefer a non-recursive ls for generic directories where you don't need the nested structure, like the Desktop.

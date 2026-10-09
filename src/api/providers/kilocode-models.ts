@@ -18,6 +18,8 @@ export type KiloCodeModel = {
 	owned_by: string
 	// Provider logo URL (SVG) from the backend catalog, rendered by the webview.
 	iconUrl?: string
+	// forked_change: effort levels the gateway accepts (absent on older backends).
+	reasoning_efforts?: string[]
 	pricing: {
 		type?: "dynamic"
 		display?: string
@@ -221,6 +223,7 @@ export function registerDynamicKilocodeModels(rawModels: Array<Record<string, an
 			owned_by: raw.owned_by || raw.id.split("/")[0] || "matterai",
 			openrouter: { slug: raw.id },
 			iconUrl: typeof raw.iconUrl === "string" && raw.iconUrl ? raw.iconUrl : undefined,
+			reasoning_efforts: Array.isArray(raw.reasoning_efforts) ? raw.reasoning_efforts : undefined,
 			pricing: {
 				...OSS_MODEL_BASE.pricing,
 				prompt: typeof pricingObj.prompt === "string" ? pricingObj.prompt : String(pricingObj.prompt ?? "0"),

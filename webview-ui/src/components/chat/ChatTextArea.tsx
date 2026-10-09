@@ -28,6 +28,7 @@ import DocumentAttachments from "../common/DocumentAttachments"
 import PasteChips, { PasteChip } from "../common/PasteChips"
 import Thumbnails, { ImageAttachment } from "../common/Thumbnails"
 import { ModelSelector } from "../kilocode/chat/ModelSelector"
+import { EffortSelector } from "./EffortSelector"
 import { useSelectedModel } from "../ui/hooks/useSelectedModel"
 import { MAX_IMAGES_PER_MESSAGE } from "./ChatView"
 import { CHAT_CONTENT_HORIZONTAL_PADDING } from "./chatLayout"
@@ -217,7 +218,11 @@ export const ChatTextArea = forwardRef<HTMLDivElement, ChatTextAreaProps>(
 			clineMessages,
 		} = useExtensionState()
 
-		const { id: selectedModelId, provider: selectedProvider } = useSelectedModel(apiConfiguration)
+		const {
+			id: selectedModelId,
+			provider: selectedProvider,
+			info: selectedModelInfo,
+		} = useSelectedModel(apiConfiguration)
 
 		// kilocode_change: audio transcription hook
 		const {
@@ -2227,6 +2232,14 @@ export const ChatTextArea = forwardRef<HTMLDivElement, ChatTextAreaProps>(
 								/>
 							</div>
 						)}
+						{/* forked_change: reasoning effort for MatterAI gateway models */}
+						{selectedProvider === "kilocode" &&
+							!apiConfiguration?.thirdPartySelectedModel &&
+							selectedModelId && (
+								<div className="shrink-0 ml-1" data-testid="effort-selector">
+									<EffortSelector modelId={selectedModelId} modelInfo={selectedModelInfo} />
+								</div>
+							)}
 						{/* forked_change: command approval mode selector */}
 						<div className="shrink-0 ml-1" data-testid="command-approval-selector">
 							<CommandApprovalSelector />

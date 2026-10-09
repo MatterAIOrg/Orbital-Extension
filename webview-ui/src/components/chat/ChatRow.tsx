@@ -9,6 +9,7 @@ import { Mode } from "@roo/modes"
 
 import { ClineApiReqInfo, ClineAskUseMcpServer, ClineSayTool } from "@roo/ExtensionMessage"
 import { COMMAND_OUTPUT_STRING } from "@roo/combineCommandSequences"
+import { TurnStats } from "./TurnStats"
 import { safeJsonParse } from "@roo/safeJsonParse"
 
 import { useExtensionState } from "@src/context/ExtensionStateContext"
@@ -499,7 +500,10 @@ export const ChatRowContent = ({
 						</StandardTooltip>
 					) : // forked_change end
 					apiRequestFailedMessage ? null : (
-						<span style={{ color: normalColor }}>{streamingWords[currentWordIndex]}</span>
+						<span style={{ color: normalColor, display: "inline-flex", alignItems: "center", gap: 8 }}>
+							{streamingWords[currentWordIndex]}
+							<TurnStats />
+						</span>
 					),
 				]
 			case "followup":
@@ -1448,6 +1452,35 @@ export const ChatRowContent = ({
 						)}
 					</>
 				)
+			// forked_change start: background shells
+			case "checkBackground":
+			case "killBackground": {
+				const label =
+					tool.tool === "checkBackground"
+						? message.partial
+							? t("chat:backgroundShells.checking")
+							: t("chat:backgroundShells.checked")
+						: message.partial
+							? t("chat:backgroundShells.stopping")
+							: t("chat:backgroundShells.stopped")
+				return (
+					<div className="flex gap-1">
+						<div style={headerStyle}>
+							<span>{label}</span>
+						</div>
+						<div className="">
+							<ToolUseBlock>
+								<ToolUseBlockHeader className="group">
+									<span className="whitespace-nowrap overflow-hidden text-ellipsis text-left font-mono">
+										{tool.content || ""}
+									</span>
+								</ToolUseBlockHeader>
+							</ToolUseBlock>
+						</div>
+					</div>
+				)
+			}
+			// forked_change end
 			case "useSkill":
 				return (
 					<div className="flex gap-1">

@@ -69,7 +69,7 @@ describe("CommandExecution", () => {
 		)
 
 		expect(screen.getByTestId("command-title")).toHaveTextContent("npm test")
-		expect(screen.getByTestId("command-status")).toHaveTextContent("Ran Command")
+		expect(screen.getByTestId("command-status")).toHaveTextContent("Bash")
 		expect(screen.getByTestId("command-execution-details")).toHaveClass("hidden")
 
 		fireEvent.click(screen.getByRole("button", { name: "Expand command details" }))
@@ -85,7 +85,7 @@ describe("CommandExecution", () => {
 			</ExtensionStateWrapper>,
 		)
 
-		expect(screen.getByTestId("command-status")).toHaveTextContent("Running Command")
+		expect(screen.getByTestId("command-status")).toHaveTextContent("Bash")
 		expect(screen.getByRole("status", { name: "Working" })).toBeInTheDocument()
 	})
 

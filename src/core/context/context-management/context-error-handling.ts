@@ -5,9 +5,42 @@ export function checkContextWindowExceededError(error: unknown): boolean {
 		checkIsOpenAIContextWindowError(error) ||
 		checkIsOpenRouterContextWindowError(error) ||
 		checkIsAnthropicContextWindowError(error) ||
-		checkIsCerebrasContextWindowError(error)
+		checkIsCerebrasContextWindowError(error) ||
+		checkIsGenericContextWindowError(error)
 	)
 }
+
+// forked_change start: gateways and OpenAI-compatible upstreams word this error
+// many ways (and some answer 413/422 instead of 400). Ported from OrbCode.
+const GENERIC_CONTEXT_ERROR_PATTERN =
+	/context[ _-]?(length|window|limit)|maximum context|too many (input )?tokens|prompt is too long|input is too long|request too large|exceeds? (the )?(maximum|max|context|token)|reduce the length/i
+
+function checkIsGenericContextWindowError(error: unknown): boolean {
+	try {
+		if (!error || typeof error !== "object") {
+			return false
+		}
+		const err = error as Record<string, any>
+		// Typed Anthropic errors are classified by checkIsAnthropicContextWindowError.
+		if (typeof err.error?.error?.type === "string") {
+			return false
+		}
+		const status = Number(err.status ?? err.statusCode ?? err.error?.status ?? err.response?.status)
+		if (Number.isFinite(status) && status !== 0 && ![400, 413, 422].includes(status)) {
+			return false
+		}
+		let body = ""
+		try {
+			body = JSON.stringify(err.error ?? "")
+		} catch {
+			// unserializable error body: the message alone decides
+		}
+		return GENERIC_CONTEXT_ERROR_PATTERN.test(`${String(err.message ?? "")} ${String(err.code ?? "")} ${body}`)
+	} catch {
+		return false
+	}
+}
+// forked_change end
 
 function checkIsOpenRouterContextWindowError(error: unknown): boolean {
 	try {

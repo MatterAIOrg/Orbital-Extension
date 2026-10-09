@@ -7,3 +7,5 @@ export const X_AXON_REPO = "X-AXON-REPO"
 export const X_MODEL_CONTEXT_WINDOW = "X-Model-Context-Window"
 export const X_DEVICE_OS = "X-Device-OS"
 export const X_CLIENT_USER_AGENT = "X-Client-User-Agent"
+/** forked_change: low | medium | high | max — mapped by the backend to the serving provider's levels. */
+export const X_REASONING_EFFORT = "X-MATTERAI-REASONING-EFFORT"

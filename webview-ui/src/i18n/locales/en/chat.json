@@ -472,15 +472,52 @@
 		"url": "Paste URL to fetch contents"
 	},
 	"exploration": {
-		"exploring": "Exploring...",
+		"exploring": "Exploring",
 		"explored": "Explored",
-		"filesCount": "{{count}} file",
-		"filesCount_other": "{{count}} files",
-		"searchesCount": "{{count}} search",
-		"searchesCount_other": "{{count}} searches",
-		"commandsCount": "{{count}} command",
-		"commandsCount_other": "{{count}} commands",
-		"othersCount": "{{count}} other",
-		"othersCount_other": "{{count}} others"
+		"read": "read {{count}} file",
+		"read_other": "read {{count}} files",
+		"searched": "searched for {{count}} pattern",
+		"searched_other": "searched for {{count}} patterns",
+		"listed": "listed {{count}} directory",
+		"listed_other": "listed {{count}} directories",
+		"ran": "ran {{count}} command",
+		"ran_other": "ran {{count}} commands",
+		"webSearched": "searched the web once",
+		"webSearched_other": "searched the web {{count}} times",
+		"fetched": "fetched {{count}} page",
+		"fetched_other": "fetched {{count}} pages",
+		"other": "used {{count}} other tool",
+		"other_other": "used {{count}} other tools"
+	},
+	"effort": {
+		"title": "Reasoning effort",
+		"scale": "Faster ↔ Smarter",
+		"levels": {
+			"low": {
+				"label": "Low",
+				"description": "Fastest replies with light reasoning"
+			},
+			"medium": {
+				"label": "Medium",
+				"description": "Balanced speed and reasoning (default)"
+			},
+			"high": {
+				"label": "High",
+				"description": "Deeper reasoning for harder tasks"
+			},
+			"max": {
+				"label": "Max",
+				"description": "Most thorough reasoning; slowest and uses the most tokens"
+			}
+		}
+	},
+	"backgroundShells": {
+		"running": "{{count}} shell running",
+		"running_other": "{{count}} shells running",
+		"stop": "Stop",
+		"checking": "Checking background command...",
+		"checked": "Checked background command",
+		"stopping": "Stopping background command...",
+		"stopped": "Stopped background command"
 	}
 }

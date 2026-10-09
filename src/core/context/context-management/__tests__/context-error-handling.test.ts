@@ -326,4 +326,30 @@ describe("checkContextWindowExceededError", () => {
 			expect(checkContextWindowExceededError(error3)).toBe(true)
 		})
 	})
+
+	describe("generic gateway errors", () => {
+		it("detects overflow wording with 413 and 422 statuses", () => {
+			expect(checkContextWindowExceededError({ status: 413, message: "Request too large for model" })).toBe(true)
+			expect(
+				checkContextWindowExceededError({ status: 422, message: "input is too long for requested model" }),
+			).toBe(true)
+			expect(
+				checkContextWindowExceededError({
+					status: 400,
+					message: "Bad request",
+					error: { message: "This model's maximum context length is 232000 tokens" },
+				}),
+			).toBe(true)
+		})
+
+		it("ignores matching wording on unrelated statuses", () => {
+			expect(checkContextWindowExceededError({ status: 500, message: "context length exceeded" })).toBe(false)
+			expect(checkContextWindowExceededError({ status: 429, message: "too many tokens per minute" })).toBe(false)
+		})
+
+		it("ignores unrelated errors", () => {
+			expect(checkContextWindowExceededError({ status: 400, message: "invalid tool schema" })).toBe(false)
+			expect(checkContextWindowExceededError(new Error("socket hang up"))).toBe(false)
+		})
+	})
 })

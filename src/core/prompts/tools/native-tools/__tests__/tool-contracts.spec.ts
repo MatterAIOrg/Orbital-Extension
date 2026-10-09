@@ -26,7 +26,8 @@ describe("native tool contracts", () => {
 	})
 
 	it("requires command safety metadata", () => {
-		expect(parameters(bash).required).toEqual(["command", "cwd", "message", "isDangerous"])
+		expect(parameters(bash).required).toEqual(["command", "cwd", "message", "background", "isDangerous"])
+		expect(parameters(bash).properties.background.type).toEqual(["boolean", "null"])
 	})
 
 	it("keeps strict schemas valid for optional arguments", () => {

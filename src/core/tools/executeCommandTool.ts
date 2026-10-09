@@ -13,9 +13,10 @@ import { Task } from "../task/Task"
 import { ToolUse, AskApproval, HandleError, PushToolResult, RemoveClosingTag, ToolResponse } from "../../shared/tools"
 import { formatResponse } from "../prompts/responses"
 import { unescapeHtmlEntities } from "../../utils/text-normalization"
-import { isReadOnlyCommand } from "./readOnlyCommand"
+import { isReadOnlyCommand } from "../../shared/readOnlyCommand"
 import { ExitCodeDetails, RooTerminalCallbacks, RooTerminalProcess } from "../../integrations/terminal/types"
 import { TerminalRegistry } from "../../integrations/terminal/TerminalRegistry"
+import { startBackgroundCommand } from "../../integrations/terminal/BackgroundCommands"
 import { Terminal } from "../../integrations/terminal/Terminal"
 import { Package } from "../../shared/package"
 import { t } from "../../i18n"
@@ -73,6 +74,14 @@ export async function executeCommandTool(
 			const didApprove = await askApproval("command", askText)
 
 			if (!didApprove) {
+				return
+			}
+
+			// forked_change: background mode starts the command detached and returns
+			// its id at once instead of blocking the turn.
+			const rawBackground: unknown = block.params.background
+			if (rawBackground === true || rawBackground === "true") {
+				pushToolResult(await runCommandInBackground(task, command, customCwd))
 				return
 			}
 
@@ -149,6 +158,41 @@ export async function executeCommandTool(
 		await handleError("executing command", error)
 		return
 	}
+}
+
+/**
+ * forked_change: start `command` as a background shell owned by this task. The
+ * chat lists the task's running shells (with a stop action), and the agent is
+ * told when one finishes, so it never has to poll or ask the user.
+ */
+export async function runCommandInBackground(task: Task, command: string, customCwd?: string): Promise<string> {
+	const workingDir = !customCwd
+		? task.cwd
+		: path.isAbsolute(customCwd)
+			? customCwd
+			: path.resolve(task.cwd, customCwd)
+	try {
+		if (!(await fs.stat(workingDir)).isDirectory()) throw new Error("not a directory")
+	} catch {
+		return `Working directory '${workingDir}' does not exist.`
+	}
+
+	const bgCommand = startBackgroundCommand(command, workingDir, task.taskId)
+	await task.say(
+		"command_output",
+		`Running in background (${bgCommand.id}). It is listed above the chat input, where you can stop it.`,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		{ isNonInteractive: true },
+	)
+	return (
+		`Background command started (id: ${bgCommand.id}, pid: ${bgCommand.pid}). ` +
+		`The user sees it above the chat input and can stop it there. ` +
+		`You will be told when it finishes; call check_background yourself if you need its output sooner. ` +
+		`Do not ask the user to check on it or mention its id.`
+	)
 }
 
 export type ExecuteCommandOptions = {

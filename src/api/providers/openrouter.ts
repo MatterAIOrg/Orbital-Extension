@@ -7,7 +7,7 @@ import { getActiveToolUseStyle, openRouterDefaultModelId, openRouterDefaultModel
 import type { ApiHandlerOptions, ModelRecord } from "../../shared/api"
 
 import { getModelParams } from "../transform/model-params"
-import { convertToOpenAiMessages } from "../transform/openai-format"
+import { convertToOpenAiMessages, replayReasoningAsContent } from "../transform/openai-format"
 import type { OpenRouterReasoningParams } from "../transform/reasoning"
 import { ApiStreamChunk } from "../transform/stream"
 
@@ -255,6 +255,11 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 	}
 
 	// forked_change start
+	/** Whether stored reasoning is replayed as `reasoning_content` (see replayReasoningAsContent). */
+	protected get replaysReasoningAsContent(): boolean {
+		return false
+	}
+
 	customRequestOptions(metadata?: ApiHandlerCreateMessageMetadata): { headers: Record<string, string> } | undefined {
 		const headers: Record<string, string> = {}
 
@@ -314,7 +319,11 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 			content: systemPrompt,
 		}
 		let { id: modelId, maxTokens, temperature, topP, reasoning } = model
-		const convertedMessages = [systemMessage, ...convertToOpenAiMessages(messages)]
+		const openAiMessages = convertToOpenAiMessages(messages)
+		const convertedMessages = [
+			systemMessage,
+			...(this.replaysReasoningAsContent ? replayReasoningAsContent(openAiMessages) : openAiMessages),
+		]
 
 		const requestOptions: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
 			model: modelId,

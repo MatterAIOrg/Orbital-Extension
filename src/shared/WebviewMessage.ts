@@ -238,6 +238,9 @@ export interface WebviewMessage {
 		| "reportBug" // kilocode_change
 		| "autoApproveAllCommands" // kilocode_change: auto-approve all commands for current task
 		| "commandApprovalMode" // forked_change: command approval mode selected from the chat textarea
+		| "modelEffort" // forked_change: effort picked for a model in the chat's effort selector
+		| "requestBackgroundCommands" // forked_change: list the current task's running background shells
+		| "killBackgroundCommand" // forked_change: stop a background shell (text: its id)
 		| "profileButtonClicked" // kilocode_change
 		| "fetchProfileDataRequest" // kilocode_change
 		| "profileDataResponse" // kilocode_change

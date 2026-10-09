@@ -18,7 +18,10 @@ import {
 	X_MODEL_CONTEXT_WINDOW,
 	X_DEVICE_OS,
 	X_CLIENT_USER_AGENT,
+	X_REASONING_EFFORT,
 } from "../../shared/kilocode/headers"
+import { resolveModelEffort } from "@roo-code/types"
+import { getModelEfforts } from "./kilocode/modelEfforts"
 import { Package } from "../../shared/package"
 
 const getClientUserAgent = (): string => {
@@ -49,6 +52,12 @@ export class KilocodeOpenrouterHandler extends OpenRouterHandler {
 		return inferenceFailoverFetch
 	}
 
+	// forked_change: the MatterAI gateway takes earlier reasoning as
+	// `reasoning_content`, like other OpenAI-compatible clients send it.
+	protected override get replaysReasoningAsContent(): boolean {
+		return true
+	}
+
 	constructor(options: ApiHandlerOptions) {
 		// forked_change: inference must always hit api2.matterai.so in production.
 		// getKiloUrlFromToken swaps the host to api.matterai.so (the default backend),
@@ -68,10 +77,18 @@ export class KilocodeOpenrouterHandler extends OpenRouterHandler {
 	}
 
 	override customRequestOptions(metadata?: ApiHandlerCreateMessageMetadata) {
+		const { id: modelId, info } = this.getModel()
 		const headers: Record<string, string> = {
-			[X_MODEL_CONTEXT_WINDOW]: String(this.getModel().info.contextWindow),
+			[X_MODEL_CONTEXT_WINDOW]: String(info.contextWindow),
 			[X_DEVICE_OS]: process.platform,
 			[X_CLIENT_USER_AGENT]: getClientUserAgent(),
+		}
+
+		// forked_change: read per request (not per task), so an effort picked in
+		// any chat applies to every task's next request.
+		const effort = resolveModelEffort(getModelEfforts(), modelId, info)
+		if (effort) {
+			headers[X_REASONING_EFFORT] = effort
 		}
 
 		if (metadata?.taskId) {

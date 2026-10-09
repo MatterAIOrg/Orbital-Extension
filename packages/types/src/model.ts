@@ -19,6 +19,20 @@ export const reasoningEffortWithMinimalSchema = z.union([reasoningEffortsSchema,
 export type ReasoningEffortWithMinimal = z.infer<typeof reasoningEffortWithMinimalSchema>
 
 /**
+ * GatewayEffort (forked_change)
+ *
+ * Effort levels the MatterAI gateway accepts for models with an effort
+ * selector, sent as the X-MATTERAI-REASONING-EFFORT header. The backend maps
+ * each level to what the serving provider supports.
+ */
+
+export const gatewayEfforts = ["low", "medium", "high", "max"] as const
+
+export const gatewayEffortSchema = z.enum(gatewayEfforts)
+
+export type GatewayEffort = z.infer<typeof gatewayEffortSchema>
+
+/**
  * Verbosity
  */
 
@@ -82,6 +96,9 @@ export const modelInfoSchema = z.object({
 	// Provider logo URL (SVG) from the MatterAI catalog; rendered by the UI
 	// on a white circular background.
 	iconUrl: z.string().nullish(),
+	// Effort levels the MatterAI gateway accepts for this model (catalog
+	// `reasoning_efforts`); absent when the catalog doesn't say.
+	reasoningEfforts: z.array(gatewayEffortSchema).optional(),
 	// forked_change end
 	// Flag to indicate if the model is deprecated and should not be used
 	deprecated: z.boolean().optional(),

@@ -116,6 +116,17 @@ export interface LanguageModelChatSelector {
 // Represents JSON data that is sent from extension to webview, called
 // ExtensionMessage and has 'type' enum which can be 'plusButtonClicked' or
 // 'settingsButtonClicked' or 'hello'. Webview will hold state.
+/** forked_change: a running background shell, as listed above the chat input. */
+export interface BackgroundCommandInfo {
+	id: string
+	command: string
+	cwd: string
+	pid: number | null
+	startedAt: number
+	/** Latest non-empty output line. */
+	lastLine?: string
+}
+
 export interface ExtensionMessage {
 	type:
 		| "action"
@@ -172,6 +183,7 @@ export interface ExtensionMessage {
 		| "focusChatInput" // kilocode_change
 		| "setHistoryPreviewCollapsed"
 		| "commandExecutionStatus"
+		| "backgroundCommands" // forked_change: the current task's running background shells
 		| "mcpExecutionStatus"
 		| "vsCodeSetting"
 		| "profileDataResponse" // kilocode_change
@@ -358,6 +370,7 @@ export interface ExtensionMessage {
 	list?: string[] // For dismissedUpsells
 	organizationId?: string | null // For organizationSwitchResult
 	memories?: MemoryItem[] // kilocode_change: For memories_response
+	backgroundCommands?: BackgroundCommandInfo[] // forked_change: for backgroundCommands
 }
 
 export type ExtensionState = Pick<
@@ -372,6 +385,7 @@ export type ExtensionState = Pick<
 	| "autoApprovalEnabled"
 	| "yoloMode" // kilocode_change
 	| "commandApprovalMode" // forked_change
+	| "modelEfforts" // forked_change
 	| "alwaysAllowReadOnly"
 	| "alwaysAllowReadOnlyOutsideWorkspace"
 	| "alwaysAllowWrite"
@@ -598,6 +612,8 @@ export interface ClineSayTool {
 		| "figmaFetch"
 		| "executeCommand"
 		| "planFileEdit"
+		| "checkBackground" // forked_change: background shells
+		| "killBackground" // forked_change: background shells
 	path?: string
 	diff?: string
 	content?: string

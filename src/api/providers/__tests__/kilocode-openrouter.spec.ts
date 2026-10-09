@@ -20,8 +20,11 @@ import {
 	X_MODEL_CONTEXT_WINDOW,
 	X_DEVICE_OS,
 	X_CLIENT_USER_AGENT,
+	X_REASONING_EFFORT,
 } from "../../../shared/kilocode/headers"
 import { Package } from "../../../shared/package"
+import type { GatewayEffort } from "@roo-code/types"
+import { setModelEffortsSource } from "../kilocode/modelEfforts"
 
 const clientMetadataHeaders = {
 	[X_MODEL_CONTEXT_WINDOW]: "232000",
@@ -286,8 +289,63 @@ describe("KilocodeOpenrouterHandler", () => {
 			await generator.next()
 
 			expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ model: "zai/glm-5.3" }), {
-				headers: clientMetadataHeaders,
+				// GLM 5.3 has an effort selector; with no pick it runs at medium.
+				headers: { ...clientMetadataHeaders, [X_REASONING_EFFORT]: "medium" },
 			})
+		})
+
+		it("sends the effort picked for the model on every request", async () => {
+			const handler = new KilocodeOpenrouterHandler({
+				kilocodeToken: "test-token",
+				kilocodeModel: "zai/glm-5.3",
+			})
+			const mockStream = {
+				async *[Symbol.asyncIterator]() {
+					yield { id: "test-id", choices: [{ delta: { content: "ok" } }] }
+				},
+			}
+			const mockCreate = vitest.fn().mockResolvedValue(mockStream)
+			;(OpenAI as any).prototype.chat = { completions: { create: mockCreate } } as any
+
+			let efforts: Record<string, GatewayEffort> = { "zai/glm-5.3": "max" }
+			setModelEffortsSource(() => efforts)
+			try {
+				await handler.createMessage("system", [{ role: "user" as const, content: "hi" }]).next()
+				// A pick made in another chat applies to the next request.
+				efforts = { "zai/glm-5.3": "low" }
+				await handler.createMessage("system", [{ role: "user" as const, content: "hi" }]).next()
+			} finally {
+				setModelEffortsSource(() => undefined)
+			}
+
+			expect(mockCreate.mock.calls[0][1].headers[X_REASONING_EFFORT]).toBe("max")
+			expect(mockCreate.mock.calls[1][1].headers[X_REASONING_EFFORT]).toBe("low")
+		})
+
+		it("replays stored reasoning as reasoning_content", async () => {
+			const handler = new KilocodeOpenrouterHandler({
+				kilocodeToken: "test-token",
+				kilocodeModel: "zai/glm-5.3",
+			})
+			const mockStream = {
+				async *[Symbol.asyncIterator]() {
+					yield { id: "test-id", choices: [{ delta: { content: "ok" } }] }
+				},
+			}
+			const mockCreate = vitest.fn().mockResolvedValue(mockStream)
+			;(OpenAI as any).prototype.chat = { completions: { create: mockCreate } } as any
+
+			await handler
+				.createMessage("system", [
+					{ role: "user" as const, content: "hi" },
+					{ role: "assistant" as const, content: "hello", reasoning: "thinking it over" } as any,
+					{ role: "user" as const, content: "again" },
+				])
+				.next()
+
+			const assistant = mockCreate.mock.calls[0][0].messages.find((m: any) => m.role === "assistant")
+			expect(assistant.reasoning_content).toBe("thinking it over")
+			expect(assistant.reasoning).toBeUndefined()
 		})
 
 		it("passes custom headers to OpenAI client", async () => {
@@ -328,6 +386,7 @@ describe("KilocodeOpenrouterHandler", () => {
 				expect.objectContaining({
 					headers: {
 						...clientMetadataHeaders,
+						[X_REASONING_EFFORT]: "medium",
 						[X_KILOCODE_TASKID]: "test-task-id",
 						[X_KILOCODE_PROJECTID]: "https://github.com/user/repo.git",
 						[X_KILOCODE_ORGANIZATIONID]: "test-org-id",
