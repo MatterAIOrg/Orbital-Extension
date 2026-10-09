@@ -1,5 +1,19 @@
 # Changelog
 
+## [v7.0.0] - 2026-10-09
+
+### Changed
+
+- **Static system prompt.** The system prompt now contains only the role definition, tool descriptions, tool guidance and a harness section. Per-session content — the skills catalog, the system info section and the git status — moves out of the system prompt and is delivered as `<system-reminder>` blocks on the first user message, so the prompt prefix stays byte-identical across sessions and the provider's prompt cache keeps hitting (`src/core/prompts/system.ts`, `src/core/environment/contextReminders.ts`).
+- **No automatic workspace file listing.** The environment details no longer enumerate up to 200 workspace files on the first message; that listing differed per workspace and session and rewrote the start of every request. The environment block now tells the model to explore with Bash (`ls`, `rg --files`, `git ls-files`) instead (`src/core/environment/getEnvironmentDetails.ts`).
+- **Condense-and-retry on context overflow.** The stale-tool-result pruner from v6.9.0 is removed: history is sent append-only, and when the provider reports a context-window overflow the task condenses the conversation and retries, up to three attempts. `fitSummarySource` trims the summary request to 60%, 30% or 15% of the context window when it doesn't fit, and the generic context-error pattern recognizes 400, 413 and 422 overflow responses from OpenAI-compatible gateways (`src/core/task/Task.ts`, `src/core/condense/index.ts`).
+
+### Added
+
+- **Background shells.** Bash commands can run detached with a `background` parameter; `check_background` and `kill_background` inspect and stop them, and a status bar above the chat input lists running shells with a stop action (`src/integrations/terminal/BackgroundCommands.ts`).
+- **Reasoning effort selector.** Models served through the MatterAI gateway expose a low/medium/high/max effort selector next to the model selector; the pick is saved per model in global state and sent on every request as the `X-MATTERAI-REASONING-EFFORT` header (`packages/types/src/model-effort.ts`).
+- **Turn stats and refreshed marketing cards.** The in-progress request row shows elapsed time and output tokens for the turn; the Axon Eido 3.2 marketing card is removed, and completed reasoning messages are filtered out so thinking is live-only (`webview-ui/src/components/chat/TurnStats.tsx`).
+
 ## [v6.9.0] - 2026-10-03
 
 ### Changed
