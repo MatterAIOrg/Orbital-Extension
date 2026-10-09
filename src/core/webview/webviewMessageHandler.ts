@@ -10,7 +10,8 @@ import { createPatch } from "diff"
 import axios from "axios"
 import { SpeechToTextRecorder } from "../../integrations/speech/SpeechToTextRecorder" // kilocode_change
 import { codeReviewSettingsSchema, CodeReviewSettings, getKiloUrlFromToken, isGlobalStateKey } from "@roo-code/types"
-import { getAppUrl } from "@roo-code/types"
+import { getAppUrl, isGatewayEffort } from "@roo-code/types"
+import { getBackgroundCommand, killBackgroundCommand } from "../../integrations/terminal/BackgroundCommands" // forked_change
 import {
 	MaybeTypedWebviewMessage,
 	MemoryItem,
@@ -3080,6 +3081,41 @@ ${comment.suggestion}
 			await updateGlobalState("yoloMode", message.bool ?? false)
 			await provider.postStateToWebview()
 			break
+		// forked_change end
+		// forked_change start: background shells listed above the chat input
+		case "requestBackgroundCommands":
+			await provider.postBackgroundCommands()
+			break
+		case "killBackgroundCommand": {
+			const taskId = provider.getCurrentTask()?.taskId
+			const cmd = message.text ? getBackgroundCommand(message.text) : null
+			// Only the current task's shells are listed, so only those can be stopped.
+			if (cmd && cmd.owner === taskId) {
+				killBackgroundCommand(cmd.id)
+			}
+			await provider.postBackgroundCommands()
+			break
+		}
+		// forked_change end
+		// forked_change start: effort picked for a model in the chat's effort selector.
+		// Saved per model in global state; the MatterAI handler reads it on every
+		// request, so running tasks pick it up from their next request.
+		case "modelEffort": {
+			const modelId = typeof message.values?.modelId === "string" ? message.values.modelId : undefined
+			const effort = message.values?.effort
+			if (modelId) {
+				const current = getGlobalState("modelEfforts") ?? {}
+				const next = { ...current }
+				if (isGatewayEffort(effort)) {
+					next[modelId] = effort
+				} else {
+					delete next[modelId]
+				}
+				await updateGlobalState("modelEfforts", next)
+				await provider.postStateToWebview()
+			}
+			break
+		}
 		// forked_change end
 		// forked_change start: command approval mode selected from the chat textarea
 		case "commandApprovalMode": {

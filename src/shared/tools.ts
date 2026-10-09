@@ -90,6 +90,8 @@ export const toolParamNames = [
 	"workspace",
 	"skill_name",
 	"file_type",
+	"background", // forked_change: Bash background mode
+	"id", // forked_change: background command id
 ] as const
 
 export type ToolParamName = (typeof toolParamNames)[number]
@@ -271,6 +273,8 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
 	web_search: "search the web",
 	figma_fetch: "fetch Figma design data",
 	generate_file: "generate files",
+	check_background: "check background commands",
+	kill_background: "stop background commands",
 } as const
 
 // Define available tool groups.
@@ -303,7 +307,7 @@ export const TOOL_GROUPS: Record<ToolGroup, ToolGroupConfig> = {
 		tools: ["browser_action"],
 	},
 	command: {
-		tools: ["execute_command"],
+		tools: ["execute_command", "check_background", "kill_background"],
 	},
 	mcp: {
 		tools: ["use_mcp_tool", "access_mcp_resource", "mcp_authenticate"],

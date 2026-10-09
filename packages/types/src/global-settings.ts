@@ -14,6 +14,7 @@ import { telemetrySettingsSchema } from "./telemetry.js"
 import { modeConfigSchema } from "./mode.js"
 import { customModePromptsSchema, customSupportPromptsSchema } from "./mode.js"
 import { languagesSchema } from "./vscode.js"
+import { gatewayEffortSchema } from "./model.js" // forked_change
 import { fastApplyModelSchema, ghostServiceSettingsSchema } from "./kilocode/kilocode.js"
 
 /**
@@ -66,6 +67,10 @@ export const globalSettingsSchema = z.object({
 	// "ask" = prompt before every command, "approveForMe" = auto-approve commands the
 	// model marks as non-dangerous, "fullAccess" = auto-approve every command.
 	commandApprovalMode: z.enum(["ask", "approveForMe", "fullAccess"]).optional(),
+	// forked_change: effort picked per model in the chat's effort selector. Read
+	// on every request, so every task (new, resumed or already running) uses it
+	// until it's changed again.
+	modelEfforts: z.record(z.string(), gatewayEffortSchema).optional(),
 	alwaysAllowReadOnly: z.boolean().optional(),
 	alwaysAllowReadOnlyOutsideWorkspace: z.boolean().optional(),
 	alwaysAllowWrite: z.boolean().optional(),
